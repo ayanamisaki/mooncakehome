@@ -1,0 +1,258 @@
+import { format } from 'date-fns';
+
+export type Task = {
+  id: string;
+  name: string;
+  done: boolean;
+  note?: string;
+  subTasks?: Task[];
+  isFixed?: boolean;
+};
+
+export type CatFoodTransitionDay = {
+  day: number;
+  oldPercent: number;
+  newPercent: number;
+  totalGrams: number;
+};
+
+export type CatFoodTransition = {
+  oldFood: string;
+  newFood: string;
+  oldPrice?: number;
+  newPrice?: number;
+  startDate: string;
+  reason: string;
+  plan: CatFoodTransitionDay[];
+};
+
+export type CatFoodDaily = {
+  brand: string;
+  price?: number;
+  startDate: string;
+  estimatedDays?: number;
+};
+
+export type CatFoodHistory = {
+  id: string;
+  brand: string;
+  startDate: string;
+  endDate?: string;
+  reason?: string;
+  type: 'daily' | 'transition';
+};
+
+export type CatHealthLog = {
+  poopCount: number;
+  peeCount: number;
+  isSoftPoop: boolean;
+  weight?: number;
+  vomit?: 'hairball' | 'no-hairball' | 'none';
+  healthNote?: string;
+};
+
+export type BirdLog = {
+  weight?: number;
+  healthNote?: string;
+};
+
+export type FishCount = {
+  motherMale: number;
+  motherFemale: number;
+  medium: number;
+  small: number;
+};
+
+export type FitnessLog = {
+  id: string;
+  duration: number;
+  type: 'Strength' | 'Cardio' | 'Yoga';
+  exercises: string[];
+  details?: string;
+  feeling: string;
+};
+
+export type HealthLog = {
+  symptoms: string[];
+  note?: string;
+};
+
+export type EntertainmentLog = {
+  category: 'CS' | 'Single' | 'Anime' | 'Series' | 'Movie' | 'Outing';
+  name: string;
+  duration: number;
+  rating: number;
+  note?: string;
+  feeling: string;
+};
+
+export type Dish = {
+  id: string;
+  name: string;
+};
+
+export type Restaurant = {
+  id: string;
+  name: string;
+  address: string;
+  category: '夯' | '人上人' | 'NPC' | '拉完了';
+  rating: number;
+  dishes: Dish[];
+};
+
+export type DishRating = {
+  dishId: string;
+  rating: number;
+};
+
+export type DiningLog = {
+  id: string;
+  restaurantId: string;
+  date: string;
+  cost: number;
+  peopleCount: number;
+  rating: number;
+  dishes: string[];
+  dishRatings: DishRating[];
+};
+
+export type DailyRecord = {
+  tasks: Record<string, Task[]>;
+  cats: {
+    mooncake: CatHealthLog;
+    tianbao: CatHealthLog;
+  };
+  bird: BirdLog;
+  fish: FishCount;
+  personal: {
+    journal?: string;
+    planning?: string;
+    weight?: number;
+    fitness: FitnessLog[];
+    health: HealthLog;
+  };
+  entertainment: EntertainmentLog[];
+  dining: DiningLog[];
+  waterFilterMold?: 'pink' | 'black' | 'green' | 'none';
+};
+
+export type AppState = {
+  dailyData: Record<string, DailyRecord>;
+  restaurants: Restaurant[];
+  foodHistory: CatFoodHistory[];
+  settings: {
+    waterFilterLastChange: string;
+    catFoodMode: 'transition' | 'daily';
+    catFoodTransition?: CatFoodTransition;
+    catFoodDaily?: CatFoodDaily;
+  };
+};
+
+export const FIXED_TASKS = {
+  cat: [
+    {
+      id: 'cat-water',
+      name: '换水',
+      done: false,
+      isFixed: true,
+      subTasks: [
+        { id: 'cat-water-1', name: '清洗饮水机（擦干触针）', done: false },
+        { id: 'cat-water-2', name: '倒入凉白开', done: false },
+        { id: 'cat-water-3', name: '检查是否正常出水', done: false },
+        { id: 'cat-water-4', name: '准备凉白开', done: false },
+      ]
+    },
+    { id: 'cat-food', name: '喂饭', done: false, isFixed: true },
+    {
+      id: 'cat-poop',
+      name: '铲屎',
+      done: false,
+      isFixed: true,
+      subTasks: [
+        { id: 'cat-poop-1', name: '铲屎', done: false },
+        { id: 'cat-poop-2', name: '检查是否需要加猫砂', done: false },
+        { id: 'cat-poop-3', name: '加猫砂', done: false },
+      ]
+    },
+    {
+      id: 'cat-brush',
+      name: '刷牙',
+      done: false,
+      isFixed: true,
+      subTasks: [
+        { id: 'cat-brush-1', name: '小月饼刷牙', done: false },
+        { id: 'cat-brush-2', name: '甜宝刷牙', done: false },
+        { id: 'cat-brush-3', name: '小月饼扣牙结石', done: false },
+      ]
+    }
+  ],
+  bird: [
+    { id: 'bird-food', name: '饭：加一勺鸟粮', done: false, isFixed: true },
+    { id: 'bird-water', name: '水', done: false, isFixed: true },
+    { id: 'bird-fly', name: '放飞', done: false, isFixed: true },
+  ],
+  fish: [
+    { id: 'fish-guppy', name: '孔雀鱼：2个鱼缸各1勺鱼粮', done: false, isFixed: true },
+    { id: 'fish-kitchen', name: '厨房鱼：0.25勺鱼粮', done: false, isFixed: true },
+  ],
+  housework: [
+    { id: 'hw-1', name: '加湿器加满水', done: false, isFixed: true },
+    { id: 'hw-2', name: '扫地', done: false, isFixed: true },
+    { id: 'hw-3', name: '拖地', done: false, isFixed: true },
+    { id: 'hw-4', name: '洗锅洗碗', done: false, isFixed: true },
+    { id: 'hw-5', name: '擦桌子：书桌x2、矮桌、卡比桌、电视架', done: false, isFixed: true },
+    { id: 'hw-6', name: '刷马桶', done: false, isFixed: true },
+    { id: 'hw-7', name: '擦水池、洗衣机', done: false, isFixed: true },
+    { id: 'hw-8', name: '清点家居用品，补货采购', done: false, isFixed: true },
+  ],
+  personal: [
+    { id: 'pers-1', name: '手账与思考', done: false, isFixed: true },
+    { id: 'pers-2', name: '每日规划', done: false, isFixed: true },
+    { id: 'pers-3', name: '称自己的体重', done: false, isFixed: true },
+    { id: 'pers-4', name: '健身记录', done: false, isFixed: true },
+    { id: 'pers-5', name: '健康状况记录', done: false, isFixed: true },
+  ],
+  entertainment: [
+    { id: 'ent-1', name: 'CS', done: false, isFixed: true },
+    { id: 'ent-2', name: '单机游戏', done: false, isFixed: true },
+    { id: 'ent-3', name: '动漫', done: false, isFixed: true },
+    { id: 'ent-4', name: '电视剧', done: false, isFixed: true },
+    { id: 'ent-5', name: '电影', done: false, isFixed: true },
+    { id: 'ent-6', name: '外出', done: false, isFixed: true },
+    { id: 'ent-7', name: '美食', done: false, isFixed: true },
+  ]
+};
+
+export const DEFAULT_DAILY_RECORD = (): DailyRecord => ({
+  tasks: {
+    cat: JSON.parse(JSON.stringify(FIXED_TASKS.cat)),
+    bird: JSON.parse(JSON.stringify(FIXED_TASKS.bird)),
+    fish: JSON.parse(JSON.stringify(FIXED_TASKS.fish)),
+    housework: JSON.parse(JSON.stringify(FIXED_TASKS.housework)),
+    personal: JSON.parse(JSON.stringify(FIXED_TASKS.personal)),
+    entertainment: JSON.parse(JSON.stringify(FIXED_TASKS.entertainment)),
+  },
+  cats: {
+    mooncake: { poopCount: 0, peeCount: 0, isSoftPoop: false },
+    tianbao: { poopCount: 0, peeCount: 0, isSoftPoop: false },
+  },
+  bird: {},
+  fish: { motherMale: 0, motherFemale: 0, medium: 0, small: 0 },
+  personal: {
+    fitness: [],
+    health: { symptoms: [] },
+  },
+  entertainment: [],
+  dining: [],
+});
+
+export const getBirdWaterTask = (date: Date) => {
+  const day = date.getDay();
+  switch (day) {
+    case 1: case 3: case 5: return '美羽维生素 (0.1:30)';
+    case 2: case 0: return '纯净水';
+    case 4: return '液体钙 (1:50) 或粉末钙 (3.2勺0.8g:50ml)';
+    case 6: return '电解质 (4勺1g:50)';
+    default: return '纯净水';
+  }
+};
