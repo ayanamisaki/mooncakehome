@@ -1,10 +1,10 @@
-import React, { useRef, useState } from 'react';
-import { Settings, Download, Upload, FileSpreadsheet, Cat, Info, Plus, Trash2 } from 'lucide-react';
+import React, { useRef, useState, useMemo } from 'react';
+import { Settings, Download, Upload, FileSpreadsheet, Cat, Info, Plus, Trash2, Heart } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Card } from '../components/UI';
 import { AppState, CatFoodTransitionDay } from '../types';
 import * as XLSX from 'xlsx';
-import { format } from 'date-fns';
+import { format, parseISO, addDays, differenceInDays, isValid } from 'date-fns';
 
 interface PageProps {
   state: AppState;
@@ -41,28 +41,137 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
   };
 
   const handleExportExcel = () => {
-    const workbook = XLSX.utils.book_new();
-    
-    // Flatten daily data for export
-    const dailyRows = Object.entries(state.dailyData).map(([date, record]) => ({
-      日期: date,
-      小月饼体重: record.cats.mooncake.weight || '',
-      小月饼便便: record.cats.mooncake.poopCount,
-      小月饼软便: record.cats.mooncake.isSoftPoop ? '是' : '否',
-      小月饼呕吐: record.cats.mooncake.vomit || '',
-      甜宝体重: record.cats.tianbao.weight || '',
-      甜宝便便: record.cats.tianbao.poopCount,
-      甜宝软便: record.cats.tianbao.isSoftPoop ? '是' : '否',
-      甜宝呕吐: record.cats.tianbao.vomit || '',
-      小觅体重: record.bird.weight || '',
-      本人体重: record.personal.weight || '',
-      本人症状: record.personal.health?.symptoms?.join(', ') || '',
-      运动记录: record.personal.fitness?.map(f => `${f.type}(${f.duration}min)`).join('; ') || '',
-    }));
+    try {
+      const workbook = XLSX.utils.book_new();
+      
+      // 1. Daily Records
+      const dailyRows = Object.entries(state.dailyData).map(([date, record]) => ({
+        日期: date,
+        小月饼体重: record.cats?.mooncake?.weight || '',
+        小月饼便便: record.cats?.mooncake?.poopCount || '',
+        小月饼软便: record.cats?.mooncake?.isSoftPoop ? '是' : '否',
+        小月饼呕吐: record.cats?.mooncake?.vomit || '',
+        甜宝体重: record.cats?.tianbao?.weight || '',
+        甜宝便便: record.cats?.tianbao?.poopCount || '',
+        甜宝软便: record.cats?.tianbao?.isSoftPoop ? '是' : '否',
+        甜宝呕吐: record.cats?.tianbao?.vomit || '',
+        小觅体重: record.bird?.weight || '',
+        本人体重: record.personal?.weight || '',
+        本人症状: record.personal?.health?.symptoms?.join(', ') || '',
+        经期: record.personal?.health?.isPeriod ? '是' : '否',
+      }));
+      if (dailyRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyRows), "每日记录");
 
-    const worksheet = XLSX.utils.json_to_sheet(dailyRows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, "每日记录");
-    XLSX.writeFile(workbook, `mooncake_home_data_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+      // 2. Tasks
+      const taskRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        if (record.tasks) {
+          Object.entries(record.tasks).forEach(([category, tasks]) => {
+            tasks.forEach(task => {
+              taskRows.push({
+                日期: date,
+                分类: category,
+                任务: task.name,
+                状态: task.done ? '完成' : '待办',
+                备注: task.note || ''
+              });
+              task.subTasks?.forEach(st => {
+                taskRows.push({
+                  日期: date,
+                  分类: category,
+                  任务: `  - ${st.name}`,
+                  状态: st.done ? '完成' : '待办',
+                  备注: ''
+                });
+              });
+            });
+          });
+        }
+      });
+      if (taskRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(taskRows), "任务清单");
+
+      // 3. Fitness
+      const fitnessRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        record.personal?.fitness?.forEach(f => {
+          fitnessRows.push({ 日期: date, 类型: f.type, 时长: f.duration, 项目: f.exercises?.join(', '), 详情: f.details || '', 感受: f.feeling });
+        });
+      });
+      if (fitnessRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(fitnessRows), "健身记录");
+
+      // 4. Sleep
+      const sleepRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        if (record.personal?.sleep) {
+          sleepRows.push({ 日期: date, 入睡: record.personal.sleep.bedTime || '', 起床: record.personal.sleep.wakeTime || '', 质量: record.personal.sleep.quality || '' });
+        }
+      });
+      if (sleepRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sleepRows), "睡眠记录");
+
+      // 5. Mood
+      const moodRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        if (record.personal?.mood) {
+          moodRows.push({ 日期: date, 心情: record.personal.mood.score, 日记: record.personal.mood.diary || '' });
+        }
+      });
+      if (moodRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(moodRows), "情绪记录");
+
+      // 6. Entertainment
+      const entRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        record.entertainment?.forEach(e => {
+          entRows.push({ 日期: date, 分类: e.category, 名称: e.name || '', 时长: e.duration, 评分: e.rating, 感受: e.feeling });
+        });
+      });
+      if (entRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(entRows), "娱乐记录");
+
+      // 7. Dining
+      const diningRows: any[] = [];
+      Object.entries(state.dailyData).forEach(([date, record]) => {
+        record.dining?.forEach(d => {
+          const res = state.restaurants.find(r => r.id === d.restaurantId);
+          diningRows.push({ 日期: date, 餐厅: res?.name || '', 消费: d.cost, 人数: d.peopleCount, 评分: d.rating, 菜品: d.dishes?.join(', ') });
+        });
+      });
+      if (diningRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(diningRows), "餐饮记录");
+
+      // 8. Restaurants
+      const resRows = state.restaurants.map(r => ({ 名称: r.name, 地址: r.address, 分类: r.category, 评分: r.rating, 招牌菜: r.dishes?.map(d => d.name).join(', ') }));
+      if (resRows.length > 0) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(resRows), "餐厅库");
+
+      XLSX.writeFile(workbook, `mooncake_home_full_data_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    } catch (error) {
+      console.error('Excel Export Error:', error);
+      alert('导出失败，请检查控制台错误。');
+    }
+  };
+
+  const startNewTransition = () => {
+    updateSettings({
+      catFoodMode: 'transition',
+      catFoodTransition: {
+        id: crypto.randomUUID(),
+        oldFood: '',
+        newFood: '',
+        startDate: format(new Date(), 'yyyy-MM-dd'),
+        reason: '',
+        plan: [],
+        isActive: true
+      }
+    });
+  };
+
+  const terminateTransition = () => {
+    if (state.settings.catFoodTransition) {
+      updateSettings({
+        catFoodMode: 'daily',
+        catFoodTransition: {
+          ...state.settings.catFoodTransition,
+          isActive: false
+        }
+      });
+    }
   };
 
   const addTransitionDay = () => {
@@ -72,7 +181,7 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
       day: nextDay,
       oldPercent: 75,
       newPercent: 25,
-      totalGrams: 50
+      totalGrams: 100
     };
     updateSettings({
       catFoodTransition: {
@@ -111,6 +220,13 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
     });
   };
 
+  const transitionEndDate = useMemo(() => {
+    if (!state.settings.catFoodTransition?.isActive || !state.settings.catFoodTransition?.startDate) return null;
+    const start = parseISO(state.settings.catFoodTransition.startDate);
+    if (!isValid(start)) return null;
+    return format(addDays(start, (state.settings.catFoodTransition.plan.length || 1) - 1), 'yyyy-MM-dd');
+  }, [state.settings.catFoodTransition]);
+
   return (
     <div className="space-y-4">
       {/* Cat Food Settings */}
@@ -119,25 +235,33 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
           <div>
             <label className="block text-xs font-bold text-stone-400 mb-2">当前模式</label>
             <div className="flex gap-2">
-              {(['daily', 'transition'] as const).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => updateSettings({ catFoodMode: mode })}
-                  className={clsx(
-                    "flex-1 py-2 rounded-xl text-xs font-bold transition-all",
-                    state.settings.catFoodMode === mode 
-                      ? "bg-amber-600 text-white" 
-                      : "bg-stone-100 text-stone-400"
-                  )}
-                >
-                  {mode === 'daily' ? '日常模式' : '换粮模式'}
-                </button>
-              ))}
+              <div className={clsx(
+                "flex-1 py-2 rounded-xl text-xs font-bold text-center transition-all",
+                state.settings.catFoodMode === 'daily' ? "bg-amber-600 text-white" : "bg-stone-100 text-stone-400"
+              )}>
+                日常模式
+              </div>
+              <div className={clsx(
+                "flex-1 py-2 rounded-xl text-xs font-bold text-center transition-all",
+                state.settings.catFoodMode === 'transition' ? "bg-amber-600 text-white" : "bg-stone-100 text-stone-400"
+              )}>
+                换粮模式
+              </div>
             </div>
           </div>
 
-          {state.settings.catFoodMode === 'transition' ? (
+          {state.settings.catFoodMode === 'transition' && state.settings.catFoodTransition?.isActive ? (
             <div className="space-y-4 bg-amber-50 p-4 rounded-2xl border border-amber-100">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-amber-800">正在进行的换粮计划</h4>
+                <button 
+                  onClick={terminateTransition}
+                  className="text-[10px] text-red-500 font-bold border border-red-200 px-2 py-1 rounded-lg hover:bg-red-50"
+                >
+                  终止计划
+                </button>
+              </div>
+              
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-amber-700 mb-1">旧粮名称</label>
@@ -160,32 +284,20 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-amber-700 mb-1">旧粮价格</label>
+                  <label className="block text-[10px] font-bold text-amber-700 mb-1">开始日期</label>
                   <input 
-                    type="number" 
-                    value={state.settings.catFoodTransition?.oldPrice || ''}
-                    onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, oldPrice: parseFloat(e.target.value) || 0 } })}
+                    type="date" 
+                    value={state.settings.catFoodTransition?.startDate || format(new Date(), 'yyyy-MM-dd')}
+                    onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, startDate: e.target.value } })}
                     className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-amber-700 mb-1">新粮价格</label>
-                  <input 
-                    type="number" 
-                    value={state.settings.catFoodTransition?.newPrice || ''}
-                    onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, newPrice: parseFloat(e.target.value) || 0 } })}
-                    className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                  />
+                  <label className="block text-[10px] font-bold text-amber-700 mb-1">预计结束</label>
+                  <div className="w-full bg-stone-100 rounded-lg p-2 text-xs text-stone-500 border border-stone-200">
+                    {transitionEndDate || '-'}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-amber-700 mb-1">开始日期</label>
-                <input 
-                  type="date" 
-                  value={state.settings.catFoodTransition?.startDate || format(new Date(), 'yyyy-MM-dd')}
-                  onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, startDate: e.target.value } })}
-                  className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                />
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-amber-700 mb-1">换粮理由</label>
@@ -199,7 +311,7 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
 
               <div className="pt-2 border-t border-amber-200">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">换粮计划</label>
+                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">换粮计划 ({state.settings.catFoodTransition.plan.length} 天)</label>
                   <button 
                     onClick={addTransitionDay}
                     className="p-1 bg-amber-600 text-white rounded-full hover:bg-amber-700 transition-colors"
@@ -207,7 +319,7 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
                     <Plus size={14} />
                   </button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {(state.settings.catFoodTransition?.plan || []).sort((a,b) => a.day - b.day).map((p) => (
                     <div key={p.day} className="bg-white/50 p-2 rounded-xl border border-amber-100 flex items-center gap-2">
                       <div className="w-8 text-center font-bold text-amber-800 text-[10px]">D{p.day}</div>
@@ -252,41 +364,48 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
                       </button>
                     </div>
                   ))}
-                  {(!state.settings.catFoodTransition?.plan || state.settings.catFoodTransition.plan.length === 0) && (
-                    <p className="text-center text-[10px] text-amber-400 italic py-2">点击 + 添加计划</p>
-                  )}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="space-y-3 bg-stone-50 p-4 rounded-2xl border border-stone-100">
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 mb-1">猫粮品牌</label>
-                <input 
-                  type="text" 
-                  value={state.settings.catFoodDaily?.brand || ''}
-                  onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, brand: e.target.value } })}
-                  className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-4">
+              <button 
+                onClick={startNewTransition}
+                className="w-full py-3 bg-amber-50 text-amber-700 rounded-2xl border border-amber-200 text-xs font-bold flex items-center justify-center gap-2 hover:bg-amber-100 transition-all"
+              >
+                <Plus size={16} /> 新增1次换粮计划
+              </button>
+
+              <div className="space-y-3 bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                <h4 className="text-[10px] font-bold text-stone-500 uppercase">日常模式设置</h4>
                 <div>
-                  <label className="block text-[10px] font-bold text-stone-500 mb-1">价格</label>
+                  <label className="block text-[10px] font-bold text-stone-500 mb-1">猫粮品牌</label>
                   <input 
-                    type="number" 
-                    value={state.settings.catFoodDaily?.price || ''}
-                    onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, price: parseFloat(e.target.value) || 0 } })}
+                    type="text" 
+                    value={state.settings.catFoodDaily?.brand || ''}
+                    onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, brand: e.target.value } })}
                     className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 mb-1">开启日期</label>
-                  <input 
-                    type="date" 
-                    value={state.settings.catFoodDaily?.startDate || format(new Date(), 'yyyy-MM-dd')}
-                    onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, startDate: e.target.value } })}
-                    className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 mb-1">价格</label>
+                    <input 
+                      type="number" 
+                      value={state.settings.catFoodDaily?.price || ''}
+                      onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, price: parseFloat(e.target.value) || 0 } })}
+                      className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-500 mb-1">开启日期</label>
+                    <input 
+                      type="date" 
+                      value={state.settings.catFoodDaily?.startDate || format(new Date(), 'yyyy-MM-dd')}
+                      onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, startDate: e.target.value } })}
+                      className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

@@ -38,9 +38,9 @@ const EntertainmentPage: React.FC<PageProps> = ({
   const restaurants = state.restaurants || [];
 
   const handleAddEntLog = () => {
-    if (!newLog.name || !newLog.category) return;
+    if (!newLog.category) return;
     updateDailyRecord({
-      entertainment: [...entLogs, newLog as EntertainmentLog]
+      entertainment: [...entLogs, { ...newLog, name: newLog.name || '未命名' } as EntertainmentLog]
     });
     setIsAddingEnt(false);
     setNewLog({ category: 'CS', rating: 5, duration: 60 });

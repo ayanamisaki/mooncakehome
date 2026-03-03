@@ -17,6 +17,7 @@ export type CatFoodTransitionDay = {
 };
 
 export type CatFoodTransition = {
+  id: string;
   oldFood: string;
   newFood: string;
   oldPrice?: number;
@@ -24,6 +25,7 @@ export type CatFoodTransition = {
   startDate: string;
   reason: string;
   plan: CatFoodTransitionDay[];
+  isActive: boolean;
 };
 
 export type CatFoodDaily = {
@@ -43,24 +45,45 @@ export type CatFoodHistory = {
 };
 
 export type CatHealthLog = {
-  poopCount: number;
-  peeCount: number;
+  poopCount: number | null;
+  peeCount: number | null;
   isSoftPoop: boolean;
-  weight?: number;
+  weight?: number | null;
   vomit?: 'hairball' | 'no-hairball' | 'none';
   healthNote?: string;
 };
 
+export type CatTreatType = '冻干' | '猫条' | '罐头';
+export type CatTreat = {
+  id: string;
+  catName: 'mooncake' | 'tianbao';
+  type: CatTreatType;
+  brand?: string;
+  quantity?: number;
+};
+
+export type CatPlayType = '绳子' | '柳条' | '藏东西' | '捉迷藏';
+export type CatPlay = {
+  id: string;
+  catName: 'mooncake' | 'tianbao';
+  type: CatPlayType;
+  duration: number;
+};
+
+export type BirdAnomaly = 'watery-poop' | 'lethargy' | 'injury' | 'egg-laying' | 'other';
+
 export type BirdLog = {
-  weight?: number;
+  weight?: number | null;
   healthNote?: string;
+  anomalies?: BirdAnomaly[];
+  customAnomaly?: string;
 };
 
 export type FishCount = {
-  motherMale: number;
-  motherFemale: number;
-  medium: number;
-  small: number;
+  motherMale: number | null;
+  motherFemale: number | null;
+  medium: number | null;
+  small: number | null;
 };
 
 export type FitnessLog = {
@@ -75,11 +98,34 @@ export type FitnessLog = {
 export type HealthLog = {
   symptoms: string[];
   note?: string;
+  isPeriod?: boolean;
+};
+
+export type SleepNap = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  note?: string;
+};
+
+export type SleepLog = {
+  bedTime?: string; // Previous night
+  wakeTime?: string;
+  quality?: 'good' | 'fair' | 'poor';
+  naps: SleepNap[];
+};
+
+export type MoodLog = {
+  score: 'happy' | 'calm' | 'angry' | 'low';
+  diary?: string;
+  suggestions?: string[];
+  tasks?: string[];
 };
 
 export type EntertainmentLog = {
   category: 'CS' | 'Single' | 'Anime' | 'Series' | 'Movie' | 'Outing';
-  name: string;
+  name?: string;
   duration: number;
   rating: number;
   note?: string;
@@ -130,9 +176,13 @@ export type DailyRecord = {
     weight?: number;
     fitness: FitnessLog[];
     health: HealthLog;
+    sleep?: SleepLog;
+    mood?: MoodLog;
   };
   entertainment: EntertainmentLog[];
   dining: DiningLog[];
+  catTreats: CatTreat[];
+  catPlays: CatPlay[];
   waterFilterMold?: 'pink' | 'black' | 'green' | 'none';
 };
 
@@ -145,6 +195,11 @@ export type AppState = {
     catFoodMode: 'transition' | 'daily';
     catFoodTransition?: CatFoodTransition;
     catFoodDaily?: CatFoodDaily;
+    menstrualSettings?: {
+      lastStartDate: string;
+      avgCycleDays: number;
+      avgPeriodDays: number;
+    };
   };
 };
 
@@ -211,6 +266,8 @@ export const FIXED_TASKS = {
     { id: 'pers-3', name: '称自己的体重', done: false, isFixed: true },
     { id: 'pers-4', name: '健身记录', done: false, isFixed: true },
     { id: 'pers-5', name: '健康状况记录', done: false, isFixed: true },
+    { id: 'pers-6', name: '睡眠记录', done: false, isFixed: true },
+    { id: 'pers-7', name: '情绪记录', done: false, isFixed: true },
   ],
   entertainment: [
     { id: 'ent-1', name: 'CS', done: false, isFixed: true },
@@ -233,17 +290,23 @@ export const DEFAULT_DAILY_RECORD = (): DailyRecord => ({
     entertainment: JSON.parse(JSON.stringify(FIXED_TASKS.entertainment)),
   },
   cats: {
-    mooncake: { poopCount: 0, peeCount: 0, isSoftPoop: false },
-    tianbao: { poopCount: 0, peeCount: 0, isSoftPoop: false },
+    mooncake: { poopCount: null, peeCount: null, isSoftPoop: false, weight: null },
+    tianbao: { poopCount: null, peeCount: null, isSoftPoop: false, weight: null },
   },
-  bird: {},
-  fish: { motherMale: 0, motherFemale: 0, medium: 0, small: 0 },
+  bird: { weight: null, anomalies: [] },
+  fish: { motherMale: null, motherFemale: null, medium: null, small: null },
   personal: {
     fitness: [],
-    health: { symptoms: [] },
+    health: { symptoms: [], isPeriod: false },
+    sleep: { naps: [] },
+    mood: { score: 'calm' },
+    weight: undefined,
   },
   entertainment: [],
   dining: [],
+  catTreats: [],
+  catPlays: [],
+  waterFilterMold: 'none',
 });
 
 export const getBirdWaterTask = (date: Date) => {

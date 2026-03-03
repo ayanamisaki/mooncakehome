@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AppState, DailyRecord, DEFAULT_DAILY_RECORD } from './types';
-import { format, subDays } from 'date-fns';
+import { format, subDays, addDays, differenceInDays, parseISO, isSameDay, isValid } from 'date-fns';
 
 const STORAGE_KEY = 'mooncake_home_data';
 
@@ -15,12 +15,11 @@ const INITIAL_STATE: AppState = {
       brand: '',
       startDate: format(new Date(), 'yyyy-MM-dd'),
     },
-    catFoodTransition: {
-      oldFood: '',
-      newFood: '',
-      startDate: format(new Date(), 'yyyy-MM-dd'),
-      reason: '',
-      plan: [],
+    catFoodTransition: undefined,
+    menstrualSettings: {
+      lastStartDate: '',
+      avgCycleDays: 28,
+      avgPeriodDays: 7,
     }
   },
 };
@@ -66,7 +65,9 @@ export function useStore() {
           ...state.dailyData[dateStr].personal
         },
         dining: state.dailyData[dateStr].dining || [],
-        entertainment: state.dailyData[dateStr].entertainment || []
+        entertainment: state.dailyData[dateStr].entertainment || [],
+        catTreats: state.dailyData[dateStr].catTreats || [],
+        catPlays: state.dailyData[dateStr].catPlays || [],
       };
     }
     
@@ -77,11 +78,51 @@ export function useStore() {
     if (prevRecord) {
       base.fish = { ...prevRecord.fish };
     }
+
+    // Menstrual Auto-tracking
+    if (state.settings.menstrualSettings?.lastStartDate) {
+      const lastStart = parseISO(state.settings.menstrualSettings.lastStartDate);
+      const today = parseISO(dateStr);
+      if (isValid(lastStart) && isValid(today)) {
+        const diff = differenceInDays(today, lastStart);
+        if (diff >= 0 && diff < (state.settings.menstrualSettings.avgPeriodDays || 7)) {
+          base.personal.health.isPeriod = true;
+        }
+      }
+    }
+
+    // Cat Food Auto-switch
+    if (state.settings.catFoodMode === 'transition' && state.settings.catFoodTransition?.isActive) {
+      const startDate = parseISO(state.settings.catFoodTransition.startDate);
+      const today = parseISO(dateStr);
+      if (isValid(startDate) && isValid(today)) {
+        const planDays = state.settings.catFoodTransition.plan.length;
+        if (differenceInDays(today, startDate) >= planDays) {
+          // This is a bit tricky since we are in a getter. 
+          // We should probably handle the actual state switch in a side effect or when updating.
+        }
+      }
+    }
     
     return base;
   };
 
   const updateDailyRecord = (dateStr: string, record: Partial<DailyRecord>) => {
+    // Check if period is being started
+    if (record.personal?.health?.isPeriod === true) {
+      const currentRecord = getDailyRecord(dateStr);
+      if (!currentRecord.personal.health.isPeriod) {
+        // Period just started today
+        updateSettings({
+          menstrualSettings: {
+            lastStartDate: dateStr,
+            avgCycleDays: state.settings.menstrualSettings?.avgCycleDays || 30,
+            avgPeriodDays: state.settings.menstrualSettings?.avgPeriodDays || 7
+          }
+        });
+      }
+    }
+
     setState(prev => ({
       ...prev,
       dailyData: {

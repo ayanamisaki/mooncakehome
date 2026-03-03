@@ -1,21 +1,82 @@
-import React, { useState } from 'react';
-import { Plus, Scale, Activity, Heart, Brain, PenTool, Trash2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Plus, Scale, Activity, Heart, Brain, PenTool, Trash2, Moon, Sun, Smile, Coffee, AlertCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Card, TaskItem, Modal } from '../components/UI';
-import { DailyRecord, Task, FitnessLog, HealthLog } from '../types';
+import { DailyRecord, Task, FitnessLog, AppState } from '../types';
+import { format, parseISO, differenceInMinutes, differenceInDays, addDays, isValid } from 'date-fns';
 
 interface PageProps {
   dailyRecord: DailyRecord;
   updateDailyRecord: (record: Partial<DailyRecord>) => void;
+  state: AppState;
 }
 
-const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord }) => {
+const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord, state }) => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingFitness, setEditingFitness] = useState<FitnessLog | null>(null);
   const [newTaskName, setNewTaskName] = useState('');
 
   const tasks = dailyRecord.tasks?.personal || [];
   const personal = dailyRecord.personal || { fitness: [], health: { symptoms: [] } };
+
+  // Sleep Duration Calculation
+  const sleepDuration = useMemo(() => {
+    if (!personal.sleep?.bedTime || !personal.sleep?.wakeTime) return null;
+    try {
+      const bed = parseISO(`2000-01-01T${personal.sleep.bedTime}`);
+      let wake = parseISO(`2000-01-01T${personal.sleep.wakeTime}`);
+      if (!isValid(bed) || !isValid(wake)) return null;
+      if (wake < bed) wake = addDays(wake, 1);
+      const diff = differenceInMinutes(wake, bed);
+      return (diff / 60).toFixed(1);
+    } catch (e) { return null; }
+  }, [personal.sleep?.bedTime, personal.sleep?.wakeTime]);
+
+  const sleepColor = useMemo(() => {
+    if (!sleepDuration) return 'text-stone-400';
+    const hours = parseFloat(sleepDuration);
+    if (isNaN(hours)) return 'text-stone-400';
+    if (hours < 7) return 'text-red-500';
+    if (hours <= 9) return 'text-green-500';
+    return 'text-orange-500';
+  }, [sleepDuration]);
+
+  // Menstrual Phase Calculation
+  const menstrualInfo = useMemo(() => {
+    const settings = state.settings.menstrualSettings || {
+      lastStartDate: '',
+      avgCycleDays: 30,
+      avgPeriodDays: 7
+    };
+    
+    if (!settings.lastStartDate) return null;
+
+    const lastDate = parseISO(settings.lastStartDate);
+    if (!isValid(lastDate)) return null;
+    const today = new Date();
+    const daysSince = differenceInDays(today, lastDate);
+    
+    const cycleDay = (daysSince % (settings.avgCycleDays || 30)) + 1;
+    const isPeriod = personal.health?.isPeriod;
+
+    let phase = '';
+    let tips = '';
+    if (cycleDay <= (settings.avgPeriodDays || 7)) {
+      phase = '经期';
+      tips = '注意保暖，避免生冷，多休息。';
+    } else if (cycleDay <= 14) {
+      phase = '卵泡期';
+      tips = '精力充沛，适合高强度运动和学习。';
+    } else if (cycleDay <= 16) {
+      phase = '排卵期';
+      tips = '可能感到腹胀，注意皮肤清洁。';
+    } else {
+      phase = '黄体期';
+      tips = '可能出现PMS，保持心情舒畅，清淡饮食。';
+    }
+
+    return { cycleDay, phase, tips, isPeriod };
+  }, [state.settings.menstrualSettings, personal.health?.isPeriod]);
 
   const handleToggle = (id: string) => {
     updateDailyRecord({
@@ -47,6 +108,60 @@ const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord }) =
     updateDailyRecord({
       personal: { ...personal, [field]: value }
     });
+  };
+
+  // Mood Log Logic
+  const moodTasks = useMemo(() => {
+    const score = personal.mood?.score;
+    if (!score) return [];
+    
+    const recommendations: Record<string, string[]> = {
+      happy: [
+        '分享快乐给朋友', '奖励自己一个小甜点', '记录下这件开心的事', 
+        '去户外走走', '听一首欢快的歌', '拍一张今天的照片'
+      ],
+      calm: [
+        '冥想 10 分钟', '阅读 20 分钟', '整理一下桌面', 
+        '练习深呼吸', '写一段随笔', '泡一壶好茶'
+      ],
+      angry: [
+        '听舒缓的音乐', '梳理课题分离', '深呼吸 5 次', 
+        '写下生气的原因并撕掉', '快走 15 分钟', '喝一杯温水'
+      ],
+      low: [
+        '抱抱自己', '听首轻快的歌', '早点休息', 
+        '看一部治愈系电影', '洗个热水澡', '给绿植浇水'
+      ]
+    };
+
+    const list = recommendations[score] || [];
+    // Randomly pick 3
+    return [...list].sort(() => 0.5 - Math.random()).slice(0, 3);
+  }, [personal.mood?.score]);
+
+  const handleAddMoodTask = (taskName: string) => {
+    const newTask: Task = {
+      id: crypto.randomUUID(),
+      name: taskName,
+      done: false,
+      isFixed: false
+    };
+    updateDailyRecord({
+      tasks: {
+        ...dailyRecord.tasks,
+        personal: [...tasks, newTask]
+      }
+    });
+  };
+
+  const symptomMap: Record<string, string> = {
+    'Digestive': '肠胃',
+    'Cold': '感冒',
+    'Injury': '受伤',
+    'Fever': '发烧',
+    'Headache': '头痛',
+    'Skin': '皮肤',
+    'Other': '其他'
   };
 
   const addFitness = () => {
@@ -203,11 +318,270 @@ const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord }) =
         </div>
       </Card>
 
+      {/* Sleep Log */}
+      <Card title="睡眠记录" icon={<Moon className="text-indigo-600" size={20} />}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-bold text-stone-400 mb-1 uppercase">入睡时间</label>
+              <input 
+                type="time" 
+                value={personal.sleep?.bedTime || ''}
+                onChange={(e) => updatePersonal('sleep', { ...personal.sleep, bedTime: e.target.value })}
+                className="w-full bg-stone-50 rounded-xl p-2 text-sm outline-none border border-stone-100 focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-400 mb-1 uppercase">起床时间</label>
+              <input 
+                type="time" 
+                value={personal.sleep?.wakeTime || ''}
+                onChange={(e) => updatePersonal('sleep', { ...personal.sleep, wakeTime: e.target.value })}
+                className="w-full bg-stone-50 rounded-xl p-2 text-sm outline-none border border-stone-100 focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between bg-stone-50 p-3 rounded-2xl border border-stone-100">
+            <span className="text-xs font-bold text-stone-500">昨晚睡眠时长</span>
+            <span className={clsx("text-lg font-black", sleepColor)}>
+              {sleepDuration ? `${sleepDuration} 小时` : '--'}
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-stone-400 mb-2 uppercase">睡眠质量</label>
+            <div className="flex gap-2">
+              {(['poor', 'fair', 'good', 'excellent'] as const).map(q => (
+                <button
+                  key={q}
+                  onClick={() => updatePersonal('sleep', { ...personal.sleep, quality: q })}
+                  className={clsx(
+                    "flex-1 py-2 rounded-xl text-[10px] font-bold border transition-all",
+                    personal.sleep?.quality === q 
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20" 
+                      : "bg-white text-stone-400 border-stone-100"
+                  )}
+                >
+                  {q === 'poor' ? '差' : q === 'fair' ? '一般' : q === 'good' ? '好' : '极好'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-stone-100">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-stone-400 uppercase">小憩记录</label>
+              <button 
+                onClick={() => {
+                  const naps = personal.sleep?.naps || [];
+                  updatePersonal('sleep', { ...personal.sleep, naps: [...naps, { id: crypto.randomUUID(), startTime: '13:00', endTime: '13:30', duration: 30, note: '' }] });
+                }}
+                className="p-1 bg-stone-100 text-stone-500 rounded-full hover:bg-stone-200"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {(personal.sleep?.naps || []).map(nap => (
+                <div key={nap.id} className="bg-stone-50 p-3 rounded-xl border border-stone-100 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Coffee size={14} className="text-stone-400" />
+                    <div className="flex-1 grid grid-cols-2 gap-2">
+                      <input 
+                        type="time" 
+                        value={nap.startTime || ''}
+                        onChange={(e) => {
+                          const updated = personal.sleep?.naps.map(n => {
+                            if (n.id === nap.id) {
+                              const startTime = e.target.value;
+                              const start = parseISO(`2000-01-01T${startTime}`);
+                              let end = parseISO(`2000-01-01T${n.endTime}`);
+                              if (isValid(start) && isValid(end)) {
+                                if (end < start) end = addDays(end, 1);
+                                const duration = differenceInMinutes(end, start);
+                                return { ...n, startTime, duration };
+                              }
+                              return { ...n, startTime };
+                            }
+                            return n;
+                          });
+                          updatePersonal('sleep', { ...personal.sleep, naps: updated });
+                        }}
+                        className="bg-white rounded p-1 text-[10px] outline-none border border-stone-100"
+                      />
+                      <input 
+                        type="time" 
+                        value={nap.endTime || ''}
+                        onChange={(e) => {
+                          const updated = personal.sleep?.naps.map(n => {
+                            if (n.id === nap.id) {
+                              const endTime = e.target.value;
+                              const start = parseISO(`2000-01-01T${n.startTime}`);
+                              let end = parseISO(`2000-01-01T${endTime}`);
+                              if (isValid(start) && isValid(end)) {
+                                if (end < start) end = addDays(end, 1);
+                                const duration = differenceInMinutes(end, start);
+                                return { ...n, endTime, duration };
+                              }
+                              return { ...n, endTime };
+                            }
+                            return n;
+                          });
+                          updatePersonal('sleep', { ...personal.sleep, naps: updated });
+                        }}
+                        className="bg-white rounded p-1 text-[10px] outline-none border border-stone-100"
+                      />
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const updated = personal.sleep?.naps.filter(n => n.id !== nap.id);
+                        updatePersonal('sleep', { ...personal.sleep, naps: updated });
+                      }}
+                      className="p-1 text-stone-300 hover:text-red-500"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-stone-500 bg-stone-200 px-2 py-0.5 rounded-md">{nap.duration} min</span>
+                    <input 
+                      type="text" 
+                      placeholder="情况记录..."
+                      value={nap.note}
+                      onChange={(e) => {
+                        const updated = personal.sleep?.naps.map(n => n.id === nap.id ? { ...n, note: e.target.value } : n);
+                        updatePersonal('sleep', { ...personal.sleep, naps: updated });
+                      }}
+                      className="flex-1 bg-transparent text-[10px] outline-none border-b border-transparent focus:border-stone-200"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Mood Log */}
+      <Card title="心情日志" icon={<Smile className="text-yellow-500" size={20} />}>
+        <div className="space-y-4">
+          <div className="flex justify-around py-2">
+            {(['happy', 'calm', 'angry', 'low'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => updatePersonal('mood', { ...personal.mood, score: m })}
+                className={clsx(
+                  "flex flex-col items-center gap-1 p-2 rounded-2xl transition-all",
+                  personal.mood?.score === m ? "bg-yellow-100 scale-110" : "opacity-40 grayscale"
+                )}
+              >
+                <span className="text-2xl">
+                  {m === 'happy' ? '😊' : m === 'calm' ? '😐' : m === 'angry' ? '😡' : '😔'}
+                </span>
+                <span className="text-[10px] font-bold text-yellow-700">
+                  {m === 'happy' ? '开心' : m === 'calm' ? '平静' : m === 'angry' ? '生气' : '低落'}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-stone-400 mb-1 uppercase">心情日记</label>
+            <textarea 
+              value={personal.mood?.diary || ''}
+              onChange={(e) => updatePersonal('mood', { ...personal.mood, diary: e.target.value })}
+              className="w-full h-24 bg-stone-50 rounded-xl p-3 text-xs outline-none border border-stone-100 focus:border-yellow-500"
+              placeholder="此刻在想什么？"
+            />
+          </div>
+
+          {personal.mood?.score && (
+            <div className="space-y-3">
+              <div className="bg-yellow-50 p-3 rounded-2xl border border-yellow-100">
+                <div className="flex items-center gap-2 text-yellow-700 font-bold text-xs mb-1">
+                  <Brain size={14} />
+                  <span>心情建议</span>
+                </div>
+                <p className="text-[10px] text-yellow-600 leading-relaxed">
+                  {personal.mood.score === 'happy' ? '太棒了！去分享你的快乐吧，或者奖励自己一个小甜品。' :
+                   personal.mood.score === 'calm' ? '平静是最好的状态，适合冥想或阅读。' :
+                   personal.mood.score === 'angry' ? '深呼吸，试着写下让你生气的原因，然后撕掉它。' :
+                   '抱抱你，听首轻快的歌，或者早点休息，明天会更好。'}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold text-stone-400 uppercase">推荐待办</label>
+                <div className="flex flex-wrap gap-2">
+                  {moodTasks.map((task, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleAddMoodTask(task)}
+                      className="px-3 py-1.5 bg-white border border-yellow-200 text-yellow-700 rounded-full text-[10px] font-bold hover:bg-yellow-50 transition-colors flex items-center gap-1"
+                    >
+                      <Plus size={12} /> {task}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Menstrual Tracking */}
+      <Card title="经期管理" icon={<Heart className="text-rose-500" size={20} />}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-rose-50 p-3 rounded-2xl border border-rose-100 text-center">
+              <div className="text-[10px] text-rose-400 uppercase font-bold mb-1">当前阶段</div>
+              <div className="text-lg font-black text-rose-600">{menstrualInfo?.phase || '--'}</div>
+            </div>
+            <div className="bg-stone-50 p-3 rounded-2xl border border-stone-100 text-center">
+              <div className="text-[10px] text-stone-400 uppercase font-bold mb-1">周期第几天</div>
+              <div className="text-lg font-black text-stone-800">
+                {menstrualInfo?.isPeriod ? `${menstrualInfo.cycleDay} 天` : '--'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-100">
+            <label className="flex items-center gap-2 text-xs font-bold text-stone-600 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={personal.health?.isPeriod}
+                onChange={(e) => updatePersonal('health', { ...personal.health, isPeriod: e.target.checked })}
+                className="rounded text-rose-600 focus:ring-rose-500"
+              />
+              今日经期
+            </label>
+            {personal.health?.isPeriod && menstrualInfo && (
+              <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-bold">
+                第 {menstrualInfo.cycleDay} 天
+              </span>
+            )}
+          </div>
+
+          {menstrualInfo && (
+            <div className="bg-rose-50 p-3 rounded-2xl border border-rose-100">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-xs mb-1">
+                <AlertCircle size={14} />
+                <span>健康小贴士</span>
+              </div>
+              <p className="text-[10px] text-rose-600 leading-relaxed">
+                {menstrualInfo.tips}
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Health Log */}
-      <Card title="健康记录" icon={<Heart className="text-emerald-500" size={20} />}>
+      <Card title="健康异常记录" icon={<Activity className="text-emerald-500" size={20} />}>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {(['Menstrual', 'Digestive', 'Cold', 'Injury', 'Fever'] as const).map(s => (
+            {(['Digestive', 'Cold', 'Injury', 'Fever', 'Headache', 'Skin', 'Other'] as const).map(s => (
               <button
                 key={s}
                 onClick={() => {
@@ -224,7 +598,7 @@ const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord }) =
                     : "bg-white text-stone-400 border-stone-200"
                 )}
               >
-                {s === 'Menstrual' ? '经期' : s === 'Digestive' ? '肠胃' : s === 'Cold' ? '感冒' : s === 'Injury' ? '受伤' : '发烧'}
+                {symptomMap[s]}
               </button>
             ))}
           </div>

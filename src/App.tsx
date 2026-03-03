@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { format, addDays, subDays } from 'date-fns';
+import { format, addDays, subDays, isValid } from 'date-fns';
 import { 
   PawPrint, 
   Home, 
@@ -101,9 +101,18 @@ export default function App() {
           >
             <ChevronLeft size={18} />
           </button>
-          <div className="flex items-center gap-1 text-sm font-medium min-w-[100px] justify-center">
+          <div className="flex items-center gap-1 text-sm font-medium min-w-[100px] justify-center relative">
             <CalendarIcon size={14} className="text-stone-500" />
-            {dateStr === format(new Date(), 'yyyy-MM-dd') ? '今天' : format(selectedDate, 'MM-dd')}
+            <span className="cursor-pointer">{dateStr === format(new Date(), 'yyyy-MM-dd') ? '今天' : format(selectedDate, 'MM-dd')}</span>
+            <input 
+              type="date" 
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              value={dateStr}
+              onChange={(e) => {
+                const d = new Date(e.target.value);
+                if (isValid(d)) setSelectedDate(d);
+              }}
+            />
           </div>
           <button 
             onClick={() => setSelectedDate(prev => addDays(prev, 1))}

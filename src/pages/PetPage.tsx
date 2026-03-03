@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { differenceInDays, parseISO, format } from 'date-fns';
-import { Droplets, Cat, Bird, Fish, Info, Scale, AlertCircle, CheckCircle2, Circle } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { differenceInDays, parseISO, format, isValid } from 'date-fns';
+import { Droplets, Cat, Bird, Fish, Info, Scale, AlertCircle, CheckCircle2, Circle, Cookie, Gamepad2, Plus, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Card, TaskItem, Modal } from '../components/UI';
 import { DailyRecord, AppState, getBirdWaterTask, Task } from '../types';
@@ -24,9 +24,34 @@ const PetPage: React.FC<PageProps> = ({
 }) => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingCat, setEditingCat] = useState<'mooncake' | 'tianbao' | null>(null);
+  const [newTreat, setNewTreat] = useState<{ catName: 'mooncake' | 'tianbao', type: '冻干' | '猫条' | '罐头', brand: string, quantity: number }>({
+    catName: 'mooncake',
+    type: '冻干',
+    brand: '',
+    quantity: 1
+  });
+  const [newPlay, setNewPlay] = useState<{ catName: 'mooncake' | 'tianbao', type: '绳子' | '柳条' | '藏东西' | '捉迷藏', duration: number }>({
+    catName: 'mooncake',
+    type: '绳子',
+    duration: 10
+  });
+
+  // Cat Food Auto-switch Logic
+  useEffect(() => {
+    if (state.settings.catFoodMode === 'transition' && state.settings.catFoodTransition?.isActive) {
+      const startDate = parseISO(state.settings.catFoodTransition.startDate);
+      if (isValid(startDate)) {
+        const planDays = state.settings.catFoodTransition.plan.length;
+        if (differenceInDays(selectedDate, startDate) >= planDays) {
+          updateSettings({ catFoodMode: 'daily', catFoodTransition: { ...state.settings.catFoodTransition, isActive: false } });
+        }
+      }
+    }
+  }, [selectedDate, state.settings.catFoodMode, state.settings.catFoodTransition, updateSettings]);
 
   // Water Filter Logic
-  const filterDays = differenceInDays(selectedDate, parseISO(state.settings.waterFilterLastChange || format(new Date(), 'yyyy-MM-dd')));
+  const filterLastChange = parseISO(state.settings.waterFilterLastChange || format(new Date(), 'yyyy-MM-dd'));
+  const filterDays = isValid(filterLastChange) ? differenceInDays(selectedDate, filterLastChange) : 0;
   const filterStatus = filterDays < 30 ? 'text-green-500' : 'text-red-500';
 
   const catTasks = useMemo(() => {
@@ -74,6 +99,26 @@ const PetPage: React.FC<PageProps> = ({
         }
       }
     });
+  };
+
+  const handleAddTreat = () => {
+    const treat = { ...newTreat, id: crypto.randomUUID() };
+    updateDailyRecord({ catTreats: [...(dailyRecord.catTreats || []), treat] });
+    setNewTreat({ ...newTreat, brand: '', quantity: 1 });
+  };
+
+  const handleRemoveTreat = (id: string) => {
+    updateDailyRecord({ catTreats: dailyRecord.catTreats.filter(t => t.id !== id) });
+  };
+
+  const handleAddPlay = () => {
+    const play = { ...newPlay, id: crypto.randomUUID() };
+    updateDailyRecord({ catPlays: [...(dailyRecord.catPlays || []), play] });
+    setNewPlay({ ...newPlay, duration: 10 });
+  };
+
+  const handleRemovePlay = (id: string) => {
+    updateDailyRecord({ catPlays: dailyRecord.catPlays.filter(p => p.id !== id) });
   };
 
   const renderCatFoodStatus = () => {
@@ -255,6 +300,132 @@ const PetPage: React.FC<PageProps> = ({
             </div>
           ))}
         </div>
+
+        {/* Treats Module */}
+        <div className="mt-6 space-y-4">
+          <div className="flex items-center gap-2 text-stone-700 font-bold text-sm border-b border-stone-100 pb-2">
+            <Cookie size={18} className="text-orange-400" />
+            <span>零食奖励</span>
+          </div>
+          <div className="bg-orange-50/50 p-3 rounded-2xl border border-orange-100 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <select 
+                value={newTreat.catName}
+                onChange={(e) => setNewTreat({ ...newTreat, catName: e.target.value as any })}
+                className="bg-white rounded-lg p-2 text-xs outline-none border border-orange-200"
+              >
+                <option value="mooncake">小月饼</option>
+                <option value="tianbao">甜宝</option>
+              </select>
+              <select 
+                value={newTreat.type}
+                onChange={(e) => setNewTreat({ ...newTreat, type: e.target.value as any })}
+                className="bg-white rounded-lg p-2 text-xs outline-none border border-orange-200"
+              >
+                <option value="冻干">冻干</option>
+                <option value="猫条">猫条</option>
+                <option value="罐头">罐头</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <input 
+                type="text" 
+                placeholder="品牌"
+                value={newTreat.brand}
+                onChange={(e) => setNewTreat({ ...newTreat, brand: e.target.value })}
+                className="col-span-2 bg-white rounded-lg p-2 text-xs outline-none border border-orange-200"
+              />
+              <input 
+                type="number" 
+                placeholder="数量"
+                value={newTreat.quantity}
+                onChange={(e) => setNewTreat({ ...newTreat, quantity: parseInt(e.target.value) || 0 })}
+                className="bg-white rounded-lg p-2 text-xs outline-none border border-orange-200 text-center"
+              />
+            </div>
+            <button 
+              onClick={handleAddTreat}
+              className="w-full py-2 bg-orange-500 text-white rounded-xl text-xs font-bold hover:bg-orange-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={14} /> 添加零食记录
+            </button>
+          </div>
+          <div className="space-y-2">
+            {dailyRecord.catTreats?.map(treat => (
+              <div key={treat.id} className="flex items-center justify-between bg-white p-2 rounded-xl border border-stone-100 text-[10px]">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-stone-700">{treat.catName === 'mooncake' ? '小月饼' : '甜宝'}</span>
+                  <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">{treat.type}</span>
+                  <span className="text-stone-500">{treat.brand}</span>
+                  <span className="font-bold text-stone-800">x{treat.quantity}</span>
+                </div>
+                <button onClick={() => handleRemoveTreat(treat.id)} className="text-stone-300 hover:text-red-500">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Play Module */}
+        <div className="mt-6 space-y-4">
+          <div className="flex items-center gap-2 text-stone-700 font-bold text-sm border-b border-stone-100 pb-2">
+            <Gamepad2 size={18} className="text-indigo-400" />
+            <span>互动玩耍</span>
+          </div>
+          <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <select 
+                value={newPlay.catName}
+                onChange={(e) => setNewPlay({ ...newPlay, catName: e.target.value as any })}
+                className="bg-white rounded-lg p-2 text-xs outline-none border border-indigo-200"
+              >
+                <option value="mooncake">小月饼</option>
+                <option value="tianbao">甜宝</option>
+              </select>
+              <select 
+                value={newPlay.type}
+                onChange={(e) => setNewPlay({ ...newPlay, type: e.target.value as any })}
+                className="bg-white rounded-lg p-2 text-xs outline-none border border-indigo-200"
+              >
+                <option value="绳子">绳子</option>
+                <option value="柳条">柳条</option>
+                <option value="藏东西">藏东西</option>
+                <option value="捉迷藏">捉迷藏</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-stone-500">时长:</span>
+              <input 
+                type="number" 
+                value={newPlay.duration}
+                onChange={(e) => setNewPlay({ ...newPlay, duration: parseInt(e.target.value) || 0 })}
+                className="flex-1 bg-white rounded-lg p-2 text-xs outline-none border border-indigo-200 text-center"
+              />
+              <span className="text-xs text-stone-500">分钟</span>
+            </div>
+            <button 
+              onClick={handleAddPlay}
+              className="w-full py-2 bg-indigo-500 text-white rounded-xl text-xs font-bold hover:bg-indigo-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus size={14} /> 添加玩耍记录
+            </button>
+          </div>
+          <div className="space-y-2">
+            {dailyRecord.catPlays?.map(play => (
+              <div key={play.id} className="flex items-center justify-between bg-white p-2 rounded-xl border border-stone-100 text-[10px]">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-stone-700">{play.catName === 'mooncake' ? '小月饼' : '甜宝'}</span>
+                  <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded">{play.type}</span>
+                  <span className="font-bold text-stone-800">{play.duration} 分钟</span>
+                </div>
+                <button onClick={() => handleRemovePlay(play.id)} className="text-stone-300 hover:text-red-500">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </Card>
 
       {/* Bird Section */}
@@ -278,25 +449,58 @@ const PetPage: React.FC<PageProps> = ({
             />
           ))}
         </div>
-        <div className="mt-4 flex items-center gap-4">
-          <div className="flex items-center gap-1 text-xs text-stone-500">
-            <Scale size={14} />
-            <input 
-              type="number" 
-              placeholder="体重 g"
-              value={dailyRecord.bird.weight ?? ''}
-              onChange={(e) => updateDailyRecord({ bird: { ...dailyRecord.bird, weight: parseFloat(e.target.value) } })}
-              className="w-12 bg-transparent border-b border-stone-200 focus:border-emerald-500 outline-none text-center"
-            />
-            g
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {(['watery-poop', 'lethargy', 'injury', 'egg-laying', 'other'] as const).map(a => {
+              const labels = { 'watery-poop': '水软便', 'lethargy': '精神不振', 'injury': '受伤', 'egg-laying': '下蛋', 'other': '其他' };
+              const isSelected = dailyRecord.bird.anomalies?.includes(a);
+              return (
+                <button
+                  key={a}
+                  onClick={() => {
+                    const current = dailyRecord.bird.anomalies || [];
+                    const updated = isSelected ? current.filter(x => x !== a) : [...current, a];
+                    updateDailyRecord({ bird: { ...dailyRecord.bird, anomalies: updated } });
+                  }}
+                  className={clsx(
+                    "px-2 py-1 rounded-lg text-[10px] border transition-all",
+                    isSelected ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-stone-400 border-stone-200"
+                  )}
+                >
+                  {labels[a]}
+                </button>
+              );
+            })}
           </div>
-          <input 
-            type="text" 
-            placeholder="健康异常记录..."
-            value={dailyRecord.bird.healthNote ?? ''}
-            onChange={(e) => updateDailyRecord({ bird: { ...dailyRecord.bird, healthNote: e.target.value } })}
-            className="flex-1 text-xs bg-transparent border-b border-stone-200 focus:border-emerald-500 outline-none"
-          />
+          {dailyRecord.bird.anomalies?.includes('other') && (
+            <input 
+              type="text" 
+              placeholder="其他异常详情..."
+              value={dailyRecord.bird.customAnomaly || ''}
+              onChange={(e) => updateDailyRecord({ bird: { ...dailyRecord.bird, customAnomaly: e.target.value } })}
+              className="w-full text-xs bg-transparent border-b border-stone-200 focus:border-emerald-500 outline-none py-1"
+            />
+          )}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1 text-xs text-stone-500">
+              <Scale size={14} />
+              <input 
+                type="number" 
+                placeholder="体重 g"
+                value={dailyRecord.bird.weight ?? ''}
+                onChange={(e) => updateDailyRecord({ bird: { ...dailyRecord.bird, weight: parseFloat(e.target.value) } })}
+                className="w-12 bg-transparent border-b border-stone-200 focus:border-emerald-500 outline-none text-center"
+              />
+              g
+            </div>
+            <input 
+              type="text" 
+              placeholder="健康异常记录..."
+              value={dailyRecord.bird.healthNote ?? ''}
+              onChange={(e) => updateDailyRecord({ bird: { ...dailyRecord.bird, healthNote: e.target.value } })}
+              className="flex-1 text-xs bg-transparent border-b border-stone-200 focus:border-emerald-500 outline-none"
+            />
+          </div>
         </div>
       </Card>
 
