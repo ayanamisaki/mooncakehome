@@ -1,48 +1,34 @@
 import React, { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie } from 'recharts';
-import { format, subDays, eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, parseISO, addDays, differenceInDays, isValid, differenceInMinutes } from 'date-fns';
-import { BarChart3, TrendingUp, AlertCircle, Calendar, Heart, Smile, Moon } from 'lucide-react';
-import { Card } from '../components/UI';
-import { AppState } from '../types';
+import { format, subDays, eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, parseISO, addDays, differenceInDays, isValid, differenceInMinutes, startOfWeek, endOfWeek, eachWeekOfInterval, subWeeks, addWeeks } from 'date-fns';
+import { BarChart3, TrendingUp, AlertCircle, Calendar, Heart, Smile, Moon, ChevronLeft, ChevronRight, Cat, Info, Gamepad2, Utensils } from 'lucide-react';
+import { Card, Modal } from '../components/UI';
+import { AppState, CatFoodTransition, CatFoodDaily } from '../types';
 import { clsx } from 'clsx';
 
 interface PageProps {
   state: AppState;
+  updateSettings: (settings: Partial<AppState['settings']>) => void;
 }
 
-const StatsPage: React.FC<PageProps> = ({ state }) => {
+const StatsPage: React.FC<PageProps> = ({ state, updateSettings }) => {
   const [weightTarget, setWeightTarget] = useState<'mooncake' | 'tianbao' | 'bird' | 'self'>('self');
   const [contributionTask, setContributionTask] = useState('housework');
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()));
+  const [entChartType, setEntChartType] = useState<'bar' | 'pie'>('bar');
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<any>(null);
 
-  // Menstrual Stats
-  const menstrualStats = useMemo(() => {
-    const settings = state.settings.menstrualSettings;
-    if (!settings?.lastStartDate) return null;
+  const weekInterval = useMemo(() => ({
+    start: currentWeekStart,
+    end: endOfWeek(currentWeekStart, { weekStartsOn: 1 })
+  }), [currentWeekStart]);
 
-    const lastDate = parseISO(settings.lastStartDate);
-    if (!isValid(lastDate)) return null;
-    const expectedNext = addDays(lastDate, settings.avgCycleDays);
-    if (!isValid(expectedNext)) return null;
-    const today = new Date();
-    const diff = differenceInDays(today, expectedNext);
-
-    return {
-      lastDate: format(lastDate, 'yyyy-MM-dd'),
-      expectedNext: format(expectedNext, 'yyyy-MM-dd'),
-      cycleLength: settings.avgCycleDays,
-      periodLength: settings.avgPeriodDays,
-      status: diff === 0 ? '今天到期' : diff > 0 ? `推迟 ${diff} 天` : `还有 ${Math.abs(diff)} 天`
-    };
-  }, [state.settings.menstrualSettings]);
+  const weekDays = useMemo(() => eachDayOfInterval(weekInterval), [weekInterval]);
 
   // Prepare Weight Data
   const weightData = useMemo(() => {
-    const last30Days = eachDayOfInterval({
-      start: subDays(new Date(), 29),
-      end: new Date(),
-    });
-
-    return last30Days.map(date => {
+    return weekDays.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
       const record = state.dailyData[dateStr];
       let weight = null;
@@ -58,8 +44,8 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
         date: format(date, 'MM-dd'),
         weight: (weight !== null && weight !== undefined && !isNaN(weight)) ? String(weight) : null,
       };
-    }).filter(d => d.weight !== null);
-  }, [state.dailyData, weightTarget]);
+    });
+  }, [state.dailyData, weightTarget, weekDays]);
 
   // Prepare Entertainment Data
   const entertainmentStats = useMemo(() => {
@@ -72,23 +58,23 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
       'Movie': '电影',
       'Outing': '外出'
     };
-    Object.values(state.dailyData).forEach(record => {
-      (record.entertainment || []).forEach(log => {
-        const label = categoryMap[log.category] || log.category;
-        totals[label] = (totals[label] || 0) + log.duration;
-      });
+    weekDays.forEach(date => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const record = state.dailyData[dateStr];
+      if (record) {
+        (record.entertainment || []).forEach(log => {
+          const label = categoryMap[log.category] || log.category;
+          totals[label] = (totals[label] || 0) + log.duration;
+        });
+      }
     });
     return Object.entries(totals).map(([name, value]) => ({ name, value }));
-  }, [state.dailyData]);
+  }, [state.dailyData, weekDays]);
 
   // Prepare Health Alerts
   const healthAlerts = useMemo(() => {
     const alerts: { date: string; type: string; note: string }[] = [];
-    const last90Days = eachDayOfInterval({
-      start: subDays(new Date(), 89),
-      end: new Date(),
-    });
-
+    
     const symptomMap: Record<string, string> = {
       'Digestive': '肠胃不适',
       'Cold': '感冒',
@@ -107,9 +93,19 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
       'other': '其他'
     };
 
-    last90Days.forEach(date => {
+    weekDays.forEach(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
       const record = state.dailyData[dateStr];
+      
+      // Water Filter Alert (Only if >= 90 days)
+      const filterLastChange = parseISO(state.settings.waterFilterLastChange || format(new Date(), 'yyyy-MM-dd'));
+      if (isValid(filterLastChange)) {
+        const filterDays = differenceInDays(date, filterLastChange);
+        if (filterDays >= 90 && isSameDay(date, new Date())) {
+          alerts.push({ date: dateStr, type: '饮水机滤芯到期', note: `已使用 ${filterDays} 天，请及时更换` });
+        }
+      }
+
       if (record) {
         // Cats
         if (record.cats?.mooncake?.isSoftPoop) alerts.push({ date: dateStr, type: '小月饼软便', note: record.cats.mooncake.healthNote || '' });
@@ -117,7 +113,7 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
         if (record.cats?.tianbao?.isSoftPoop) alerts.push({ date: dateStr, type: '甜宝软便', note: record.cats.tianbao.healthNote || '' });
         if (record.cats?.tianbao?.vomit && record.cats.tianbao.vomit !== 'none') alerts.push({ date: dateStr, type: '甜宝呕吐', note: record.cats.tianbao.healthNote || '' });
         
-        // Water Filter
+        // Water Filter Mold
         if (record.waterFilterMold && record.waterFilterMold !== 'none') {
           const moldMap = { pink: '粉色霉菌', black: '黑色霉菌', green: '绿色霉菌' };
           alerts.push({ date: dateStr, type: '饮水机异常', note: moldMap[record.waterFilterMold as keyof typeof moldMap] || record.waterFilterMold });
@@ -137,21 +133,17 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
       }
     });
     return alerts.reverse();
-  }, [state.dailyData]);
+  }, [state.dailyData, weekDays, state.settings.waterFilterLastChange]);
 
   // Prepare Mood Data
   const moodData = useMemo(() => {
-    const last30Days = eachDayOfInterval({
-      start: subDays(new Date(), 29),
-      end: new Date(),
-    });
     const moodMap: Record<string, { icon: string, value: number }> = {
       happy: { icon: '😊', value: 4 },
       calm: { icon: '😐', value: 3 },
       angry: { icon: '😡', value: 2 },
       low: { icon: '😔', value: 1 }
     };
-    return last30Days.map(date => {
+    return weekDays.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
       const record = state.dailyData[dateStr];
       const mood = record?.personal?.mood?.score;
@@ -160,16 +152,12 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
         mood: mood ? moodMap[mood].value : null,
         icon: mood ? moodMap[mood].icon : null
       };
-    }).filter(d => d.mood !== null);
-  }, [state.dailyData]);
+    });
+  }, [state.dailyData, weekDays]);
 
   // Prepare Sleep Data
   const sleepData = useMemo(() => {
-    const last30Days = eachDayOfInterval({
-      start: subDays(new Date(), 29),
-      end: new Date(),
-    });
-    return last30Days.map(date => {
+    return weekDays.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
       const record = state.dailyData[dateStr];
       const sleep = record?.personal?.sleep;
@@ -186,8 +174,60 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
         date: format(date, 'MM-dd'),
         duration: duration !== null ? parseFloat(duration.toFixed(1)) : null,
       };
-    }).filter(d => d.duration !== null);
-  }, [state.dailyData]);
+    });
+  }, [state.dailyData, weekDays]);
+
+  // Cat Food Calendar Logic
+  const catFoodCalendar = useMemo(() => {
+    const start = startOfMonth(selectedMonth);
+    const end = endOfMonth(selectedMonth);
+    const days = eachDayOfInterval({ start, end });
+    
+    return days.map(date => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const { catFoodTransition, catFoodDaily } = state.settings;
+      const record = state.dailyData[dateStr];
+      
+      let type: 'transition' | 'daily' | 'none' = 'none';
+      let brand = '';
+      let amount = '';
+      let details: any = { treats: record?.catTreats || [], plays: record?.catPlays || [] };
+      
+      if (catFoodTransition?.isActive) {
+        const transStart = parseISO(catFoodTransition.startDate);
+        if (isValid(transStart)) {
+          const diff = differenceInDays(date, transStart);
+          if (diff >= 0 && diff < catFoodTransition.plan.length) {
+            type = 'transition';
+            const plan = catFoodTransition.plan[diff];
+            brand = `${catFoodTransition.oldFood} & ${catFoodTransition.newFood}`;
+            amount = `旧: ${(plan.totalGrams * plan.oldPercent / 100).toFixed(1)}g, 新: ${(plan.totalGrams * plan.newPercent / 100).toFixed(1)}g (共${plan.totalGrams}g)`;
+            details.food = [
+              { name: catFoodTransition.oldFood, amount: (plan.totalGrams * plan.oldPercent / 100).toFixed(1) + 'g' },
+              { name: catFoodTransition.newFood, amount: (plan.totalGrams * plan.newPercent / 100).toFixed(1) + 'g' }
+            ];
+          }
+        }
+      }
+      
+      if (type === 'none') {
+        const activeRecord = state.settings.catFoodRecords.find(r => !r.isFinished && parseISO(r.startDate) <= date && (!r.endDate || parseISO(r.endDate) >= date));
+        if (activeRecord) {
+          type = 'daily';
+          brand = activeRecord.brand;
+          amount = `${activeRecord.dailyGrams || 100}g`;
+          details.food = [{ name: brand, amount: `${activeRecord.dailyGrams || 100}g` }];
+        } else if (catFoodDaily) {
+          type = 'daily';
+          brand = catFoodDaily.brand;
+          amount = `${catFoodDaily.dailyGrams || 100}g`;
+          details.food = [{ name: brand, amount: `${catFoodDaily.dailyGrams || 100}g` }];
+        }
+      }
+      
+      return { date, type, brand, amount, details };
+    });
+  }, [selectedMonth, state.settings, state.dailyData]);
 
   // Contribution Graph Logic
   const contributionData = useMemo(() => {
@@ -216,31 +256,27 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
     });
   }, [state.dailyData, contributionTask]);
 
+  const handlePrevWeek = () => setCurrentWeekStart(prev => subWeeks(prev, 1));
+  const handleNextWeek = () => setCurrentWeekStart(prev => addWeeks(prev, 1));
+  const handleResetWeek = () => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+
   return (
-    <div className="space-y-4">
-      {/* Menstrual Stats */}
-      {menstrualStats && (
-        <Card title="经期统计" icon={<Heart className="text-rose-500" size={20} />}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
-              <div className="text-[10px] text-rose-400 uppercase font-bold mb-1">上次经期</div>
-              <div className="text-sm font-black text-rose-600">{menstrualStats.lastDate}</div>
-            </div>
-            <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-              <div className="text-[10px] text-indigo-400 uppercase font-bold mb-1">预计下次</div>
-              <div className="text-sm font-black text-indigo-600">{menstrualStats.expectedNext}</div>
-            </div>
-            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
-              <div className="text-[10px] text-stone-400 uppercase font-bold mb-1">周期长度</div>
-              <div className="text-sm font-black text-stone-800">{menstrualStats.cycleLength} 天</div>
-            </div>
-            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
-              <div className="text-[10px] text-stone-400 uppercase font-bold mb-1">当前状态</div>
-              <div className="text-sm font-black text-stone-800">{menstrualStats.status}</div>
-            </div>
-          </div>
-        </Card>
-      )}
+    <div className="space-y-4 pb-10">
+      {/* Week Navigation */}
+      <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-stone-100 shadow-sm sticky top-0 z-10">
+        <button onClick={handlePrevWeek} className="p-2 hover:bg-stone-50 rounded-full transition-colors">
+          <ChevronLeft size={20} className="text-stone-400" />
+        </button>
+        <div className="flex flex-col items-center">
+          <span className="text-xs font-black text-stone-800">
+            {format(weekInterval.start, 'yyyy年MM月dd日')} - {format(weekInterval.end, 'MM月dd日')}
+          </span>
+          <button onClick={handleResetWeek} className="text-[10px] text-blue-500 font-bold mt-0.5">回到本周</button>
+        </div>
+        <button onClick={handleNextWeek} className="p-2 hover:bg-stone-50 rounded-full transition-colors">
+          <ChevronRight size={20} className="text-stone-400" />
+        </button>
+      </div>
 
       {/* Mood Curve */}
       <Card title="心情波动" icon={<Smile className="text-yellow-500" size={20} />}>
@@ -283,7 +319,7 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-stone-400 text-xs italic">
-              暂无心情数据
+              本周暂无心情数据
             </div>
           )}
         </div>
@@ -321,7 +357,7 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-stone-400 text-xs italic">
-              暂无睡眠数据
+              本周暂无睡眠数据
             </div>
           )}
         </div>
@@ -365,35 +401,159 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-stone-400 text-xs italic">
-              暂无体重数据
+              本周暂无体重数据
             </div>
           )}
         </div>
       </Card>
 
+      {/* Cat Food Bag Statistics */}
+      <Card title="猫粮消耗统计 (按包)" icon={<Cat className="text-amber-600" size={20} />}>
+        <div className="space-y-4">
+          {state.settings.catFoodRecords.length === 0 ? (
+            <p className="text-center py-4 text-stone-400 text-xs italic">暂无猫粮记录数据</p>
+          ) : (
+            <div className="space-y-3">
+              {state.settings.catFoodRecords.sort((a,b) => b.startDate.localeCompare(a.startDate)).map(record => {
+                const start = parseISO(record.startDate);
+                const end = record.endDate ? parseISO(record.endDate) : new Date();
+                const days = isValid(start) && isValid(end) ? differenceInDays(end, start) + 1 : 0;
+                const costPerDay = days > 0 ? (record.price / days).toFixed(2) : '0.00';
+                
+                return (
+                  <div key={record.id} className="bg-stone-50 p-3 rounded-2xl border border-stone-100">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-stone-800">{record.brand}</h4>
+                        <p className="text-[10px] text-stone-400">{record.startDate} 至 {record.endDate || '至今'}</p>
+                      </div>
+                      <div className={clsx(
+                        "text-[10px] px-2 py-0.5 rounded-full font-bold",
+                        record.isFinished ? "bg-stone-200 text-stone-500" : "bg-emerald-100 text-emerald-600"
+                      )}>
+                        {record.isFinished ? '已吃完' : '进行中'}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-white p-2 rounded-xl border border-stone-50">
+                        <p className="text-[8px] text-stone-400 mb-0.5">天数</p>
+                        <p className="text-xs font-bold text-stone-700">{days} 天</p>
+                      </div>
+                      <div className="bg-white p-2 rounded-xl border border-stone-50">
+                        <p className="text-[8px] text-stone-400 mb-0.5">总价</p>
+                        <p className="text-xs font-bold text-stone-700">¥{record.price}</p>
+                      </div>
+                      <div className="bg-white p-2 rounded-xl border border-stone-50">
+                        <p className="text-[8px] text-stone-400 mb-0.5">日均成本</p>
+                        <p className="text-xs font-bold text-amber-600">¥{costPerDay}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Cat Food Calendar */}
+      <Card title="猫粮方案图" icon={<Cat className="text-amber-500" size={20} />}>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-2">
+            <button onClick={() => setSelectedMonth(prev => subDays(startOfMonth(prev), 1))} className="p-1 hover:bg-stone-50 rounded-full">
+              <ChevronLeft size={16} className="text-stone-400" />
+            </button>
+            <span className="text-xs font-bold text-stone-700">{format(selectedMonth, 'yyyy年MM月')}</span>
+            <button onClick={() => setSelectedMonth(prev => addDays(endOfMonth(prev), 1))} className="p-1 hover:bg-stone-50 rounded-full">
+              <ChevronRight size={16} className="text-stone-400" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {['一', '二', '三', '四', '五', '六', '日'].map(d => (
+              <div key={d} className="text-center text-[8px] font-bold text-stone-400 py-1">{d}</div>
+            ))}
+            {Array.from({ length: (startOfMonth(selectedMonth).getDay() + 6) % 7 }).map((_, i) => (
+              <div key={`empty-${i}`} />
+            ))}
+            {catFoodCalendar.map((day, i) => (
+              <div 
+                key={i} 
+                onClick={() => setSelectedCalendarDay(day)}
+                className={clsx(
+                  "aspect-square rounded-sm flex items-center justify-center text-[8px] transition-all cursor-pointer",
+                  day.type === 'transition' ? "bg-amber-400 text-white font-bold" : 
+                  day.type === 'daily' ? "bg-stone-200 text-stone-600" : "bg-stone-50 text-stone-300"
+                )}
+              >
+                {format(day.date, 'd')}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-4 justify-center text-[8px] text-stone-400">
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-amber-400 rounded-sm" /> 换粮模式
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-stone-200 rounded-sm" /> 日常模式
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* Entertainment Stats */}
-      <Card title="娱乐时长统计" icon={<BarChart3 className="text-purple-500" size={20} />}>
+      <Card 
+        title="娱乐时长统计" 
+        icon={<BarChart3 className="text-purple-500" size={20} />}
+        onAdd={() => setEntChartType(prev => prev === 'bar' ? 'pie' : 'bar')}
+      >
+        <div className="flex justify-end mb-2">
+          <button 
+            onClick={() => setEntChartType(prev => prev === 'bar' ? 'pie' : 'bar')}
+            className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100"
+          >
+            切换为{entChartType === 'bar' ? '饼图' : '柱状图'}
+          </button>
+        </div>
         <div className="h-48 w-full">
           {entertainmentStats.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={entertainmentStats} layout="vertical">
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" fontSize={10} width={40} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  cursor={{ fill: 'transparent' }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
-                  formatter={(value: number) => [`${value} 分钟`, '时长']}
-                />
-                <Bar dataKey="value" fill="#9333ea" radius={[0, 4, 4, 0]}>
-                  {entertainmentStats.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={['#9333ea', '#a855f7', '#c084fc', '#d8b4fe'][index % 4]} />
-                  ))}
-                </Bar>
-              </BarChart>
+              {entChartType === 'bar' ? (
+                <BarChart data={entertainmentStats} layout="vertical">
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="name" type="category" fontSize={10} width={40} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
+                    formatter={(value: number) => [`${value} 分钟`, '时长']}
+                  />
+                  <Bar dataKey="value" fill="#9333ea" radius={[0, 4, 4, 0]}>
+                    {entertainmentStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={['#9333ea', '#a855f7', '#c084fc', '#d8b4fe'][index % 4]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <PieChart>
+                  <Pie
+                    data={entertainmentStats}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={70}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {entertainmentStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={['#9333ea', '#a855f7', '#c084fc', '#d8b4fe'][index % 4]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => [`${value} 分钟`, '时长']} />
+                </PieChart>
+              )}
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-stone-400 text-xs italic">
-              暂无娱乐数据
+              本周暂无娱乐数据
             </div>
           )}
         </div>
@@ -441,7 +601,7 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
       </Card>
 
       {/* Health Alerts */}
-      <Card title="异常告警 (近期)" icon={<AlertCircle className="text-red-500" size={20} />}>
+      <Card title="异常告警 (本周)" icon={<AlertCircle className="text-red-500" size={20} />}>
         <div className="space-y-2">
           {healthAlerts.length > 0 ? (
             healthAlerts.map((alert, i) => (
@@ -455,11 +615,71 @@ const StatsPage: React.FC<PageProps> = ({ state }) => {
             ))
           ) : (
             <div className="text-center py-4 text-stone-400 text-sm italic">
-              近期一切正常，继续保持哦~
+              本周一切正常，继续保持哦~
             </div>
           )}
         </div>
       </Card>
+
+      {/* Cat Food Detail Modal */}
+      <Modal
+        isOpen={!!selectedCalendarDay}
+        onClose={() => setSelectedCalendarDay(null)}
+        title={`${selectedCalendarDay ? format(selectedCalendarDay.date, 'yyyy-MM-dd') : ''} 详情`}
+      >
+        {selectedCalendarDay && (
+          <div className="space-y-4">
+            <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+              <div className="flex items-center gap-2 text-amber-600 font-bold text-xs mb-3">
+                <Cat size={16} />
+                <span>猫粮方案</span>
+              </div>
+              <div className="space-y-2">
+                {selectedCalendarDay.details?.food?.map((f: any, i: number) => (
+                  <div key={i} className="flex justify-between items-center bg-white p-2 rounded-xl border border-stone-100">
+                    <span className="text-xs text-stone-600">{f.name}</span>
+                    <span className="text-xs font-bold text-stone-800">{f.amount}</span>
+                  </div>
+                ))}
+                {(!selectedCalendarDay.details?.food || selectedCalendarDay.details.food.length === 0) && (
+                  <p className="text-[10px] text-stone-400 italic">当天无猫粮记录</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs mb-2">
+                  <Info size={14} />
+                  <span>零食</span>
+                </div>
+                <div className="space-y-1">
+                  {selectedCalendarDay.details?.treats?.map((t: any, i: number) => (
+                    <div key={i} className="text-[10px] text-stone-600">• {t.brand} ({t.type}) x{t.count}</div>
+                  ))}
+                  {(!selectedCalendarDay.details?.treats || selectedCalendarDay.details.treats.length === 0) && (
+                    <p className="text-[10px] text-stone-400 italic">无</p>
+                  )}
+                </div>
+              </div>
+              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs mb-2">
+                  <Gamepad2 size={14} />
+                  <span>玩耍</span>
+                </div>
+                <div className="space-y-1">
+                  {selectedCalendarDay.details?.plays?.map((p: any, i: number) => (
+                    <div key={i} className="text-[10px] text-stone-600">• {p.type} ({p.duration}min)</div>
+                  ))}
+                  {(!selectedCalendarDay.details?.plays || selectedCalendarDay.details.plays.length === 0) && (
+                    <p className="text-[10px] text-stone-400 italic">无</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { format, addDays, subDays, isValid } from 'date-fns';
+import React, { useState, useMemo, useEffect } from 'react';
+import { format, addDays, subDays, isValid, parseISO, differenceInDays } from 'date-fns';
 import { 
   PawPrint, 
   Home, 
@@ -48,10 +48,18 @@ export default function App() {
     addRestaurant,
     updateRestaurant,
     deleteRestaurant,
-    importData
+    importData,
+    addMenstrualRecord,
+    deleteMenstrualRecord,
+    addGameReview,
+    updateGameReview,
+    deleteGameReview,
+    addGamePlayRecord,
+    updateGamePlayRecord,
+    deleteGamePlayRecord,
   } = useStore();
 
-  const dailyRecord = useMemo(() => getDailyRecord(dateStr), [dateStr, state.dailyData]);
+  const dailyRecord = useMemo(() => getDailyRecord(dateStr), [dateStr, state.dailyData, state.settings]);
 
   const tabs = [
     { id: 'pet', icon: PawPrint, label: '宠物' },
@@ -61,6 +69,30 @@ export default function App() {
     { id: 'stats', icon: BarChart3, label: '统计' },
     { id: 'settings', icon: Settings, label: '设置' },
   ];
+
+  // Auto-switch cat food logic
+  useEffect(() => {
+    const transition = state.settings.catFoodTransition;
+    if (transition?.isActive && transition.plan.length > 0) {
+      const start = parseISO(transition.startDate);
+      if (isValid(start)) {
+        const today = new Date();
+        const diff = differenceInDays(today, start);
+        // If today is beyond the plan, switch to daily mode with the new food
+        if (diff >= transition.plan.length) {
+          updateSettings({
+            catFoodTransition: { ...transition, isActive: false },
+            catFoodDaily: {
+              brand: transition.newFood,
+              price: state.settings.catFoodDaily?.price || 0,
+              startDate: format(today, 'yyyy-MM-dd'),
+              dailyGrams: transition.plan[transition.plan.length - 1].totalGrams
+            }
+          });
+        }
+      }
+    }
+  }, [state.settings.catFoodTransition, state.settings.catFoodDaily, updateSettings]);
 
   const renderPage = () => {
     const props = {
@@ -73,7 +105,15 @@ export default function App() {
       addRestaurant,
       updateRestaurant,
       deleteRestaurant,
-      importData
+      importData,
+      addMenstrualRecord,
+      deleteMenstrualRecord,
+      addGameReview,
+      updateGameReview,
+      deleteGameReview,
+      addGamePlayRecord,
+      updateGamePlayRecord,
+      deleteGamePlayRecord,
     };
 
     switch (activeTab) {

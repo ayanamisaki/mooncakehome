@@ -14,6 +14,7 @@ export type CatFoodTransitionDay = {
   oldPercent: number;
   newPercent: number;
   totalGrams: number;
+  ratio?: string;
 };
 
 export type CatFoodTransition = {
@@ -33,6 +34,7 @@ export type CatFoodDaily = {
   price?: number;
   startDate: string;
   estimatedDays?: number;
+  dailyGrams?: number;
 };
 
 export type CatFoodHistory = {
@@ -186,17 +188,44 @@ export type DailyRecord = {
   waterFilterMold?: 'pink' | 'black' | 'green' | 'none';
 };
 
+export type GamePlayRecord = {
+  id: string;
+  date: string;
+  feeling: string;
+  rating: number;
+};
+
+export type GameReview = {
+  id: string;
+  name: string;
+  description: string;
+  avgDuration: number;
+  rating: number;
+  playRecords: GamePlayRecord[];
+};
+
+export type CatFoodRecord = {
+  id: string;
+  brand: string;
+  startDate: string;
+  endDate?: string;
+  price: number;
+  dailyGrams: number;
+  isFinished: boolean;
+};
+
 export type AppState = {
   dailyData: Record<string, DailyRecord>;
   restaurants: Restaurant[];
   foodHistory: CatFoodHistory[];
+  gameReviews: GameReview[];
+  menstrualRecords: string[]; // List of start dates
   settings: {
     waterFilterLastChange: string;
-    catFoodMode: 'transition' | 'daily';
     catFoodTransition?: CatFoodTransition;
     catFoodDaily?: CatFoodDaily;
+    catFoodRecords: CatFoodRecord[];
     menstrualSettings?: {
-      lastStartDate: string;
       avgCycleDays: number;
       avgPeriodDays: number;
     };

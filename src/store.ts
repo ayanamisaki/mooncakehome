@@ -8,16 +8,18 @@ const INITIAL_STATE: AppState = {
   dailyData: {},
   restaurants: [],
   foodHistory: [],
+  gameReviews: [],
+  menstrualRecords: [],
   settings: {
     waterFilterLastChange: format(new Date(), 'yyyy-MM-dd'),
-    catFoodMode: 'daily',
     catFoodDaily: {
       brand: '',
       startDate: format(new Date(), 'yyyy-MM-dd'),
+      dailyGrams: 100,
     },
     catFoodTransition: undefined,
+    catFoodRecords: [],
     menstrualSettings: {
-      lastStartDate: '',
       avgCycleDays: 28,
       avgPeriodDays: 7,
     }
@@ -34,6 +36,16 @@ export function useStore() {
         if (!parsed.foodHistory) parsed.foodHistory = [];
         // Ensure settings exist
         if (!parsed.settings) parsed.settings = INITIAL_STATE.settings;
+        if (!parsed.gameReviews) parsed.gameReviews = [];
+        if (!parsed.menstrualRecords) parsed.menstrualRecords = [];
+        if (parsed.settings?.catFoodDaily && parsed.settings.catFoodDaily.dailyGrams === undefined) {
+          parsed.settings.catFoodDaily.dailyGrams = 100;
+        }
+        if (!parsed.settings.catFoodRecords) parsed.settings.catFoodRecords = [];
+        // Remove deprecated catFoodMode
+        if (parsed.settings && 'catFoodMode' in parsed.settings) {
+          delete parsed.settings.catFoodMode;
+        }
         return parsed;
       } catch (e) {
         console.error('Failed to parse storage', e);
@@ -79,50 +91,43 @@ export function useStore() {
       base.fish = { ...prevRecord.fish };
     }
 
-    // Menstrual Auto-tracking
-    if (state.settings.menstrualSettings?.lastStartDate) {
-      const lastStart = parseISO(state.settings.menstrualSettings.lastStartDate);
+    // Menstrual Auto-tracking Logic
+    const lastStartStr = [...state.menstrualRecords].sort().reverse()[0];
+    if (lastStartStr) {
+      const lastStart = parseISO(lastStartStr);
       const today = parseISO(dateStr);
       if (isValid(lastStart) && isValid(today)) {
         const diff = differenceInDays(today, lastStart);
-        if (diff >= 0 && diff < (state.settings.menstrualSettings.avgPeriodDays || 7)) {
+        const cycleDays = state.settings.menstrualSettings?.avgCycleDays || 28;
+        const periodDays = state.settings.menstrualSettings?.avgPeriodDays || 7;
+        
+        const daysIntoCycle = diff % cycleDays;
+        
+        if (daysIntoCycle >= 0 && daysIntoCycle < periodDays) {
           base.personal.health.isPeriod = true;
         }
       }
     }
 
     // Cat Food Auto-switch
-    if (state.settings.catFoodMode === 'transition' && state.settings.catFoodTransition?.isActive) {
+    const isTransitionDay = state.settings.catFoodTransition?.isActive && (() => {
       const startDate = parseISO(state.settings.catFoodTransition.startDate);
       const today = parseISO(dateStr);
       if (isValid(startDate) && isValid(today)) {
-        const planDays = state.settings.catFoodTransition.plan.length;
-        if (differenceInDays(today, startDate) >= planDays) {
-          // This is a bit tricky since we are in a getter. 
-          // We should probably handle the actual state switch in a side effect or when updating.
-        }
+        const diff = differenceInDays(today, startDate);
+        return diff >= 0 && diff < state.settings.catFoodTransition.plan.length;
       }
+      return false;
+    })();
+
+    if (isTransitionDay) {
+      // Logic for transition day if needed
     }
     
     return base;
   };
 
   const updateDailyRecord = (dateStr: string, record: Partial<DailyRecord>) => {
-    // Check if period is being started
-    if (record.personal?.health?.isPeriod === true) {
-      const currentRecord = getDailyRecord(dateStr);
-      if (!currentRecord.personal.health.isPeriod) {
-        // Period just started today
-        updateSettings({
-          menstrualSettings: {
-            lastStartDate: dateStr,
-            avgCycleDays: state.settings.menstrualSettings?.avgCycleDays || 30,
-            avgPeriodDays: state.settings.menstrualSettings?.avgPeriodDays || 7
-          }
-        });
-      }
-    }
-
     setState(prev => ({
       ...prev,
       dailyData: {
@@ -132,6 +137,86 @@ export function useStore() {
           ...record,
         },
       },
+    }));
+  };
+
+  const addMenstrualRecord = (dateStr: string) => {
+    setState(prev => ({
+      ...prev,
+      menstrualRecords: [...new Set([...prev.menstrualRecords, dateStr])]
+    }));
+  };
+
+  const deleteMenstrualRecord = (dateStr: string) => {
+    setState(prev => ({
+      ...prev,
+      menstrualRecords: prev.menstrualRecords.filter(d => d !== dateStr)
+    }));
+  };
+
+  const addGameReview = (review: Omit<AppState['gameReviews'][0], 'id' | 'playRecords'>) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: [...prev.gameReviews, { ...review, id: crypto.randomUUID(), playRecords: [] }]
+    }));
+  };
+
+  const updateGameReview = (review: AppState['gameReviews'][0]) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: prev.gameReviews.map(r => r.id === review.id ? review : r)
+    }));
+  };
+
+  const deleteGameReview = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: prev.gameReviews.filter(r => r.id !== id)
+    }));
+  };
+
+  const addGamePlayRecord = (reviewId: string, play: Omit<AppState['gameReviews'][0]['playRecords'][0], 'id'>) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: prev.gameReviews.map(r => {
+        if (r.id === reviewId) {
+          return {
+            ...r,
+            playRecords: [...r.playRecords, { ...play, id: crypto.randomUUID() }]
+          };
+        }
+        return r;
+      })
+    }));
+  };
+
+  const updateGamePlayRecord = (reviewId: string, play: AppState['gameReviews'][0]['playRecords'][0]) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: prev.gameReviews.map(r => {
+        if (r.id === reviewId) {
+          return {
+            ...r,
+            playRecords: r.playRecords.map(p => p.id === play.id ? play : p)
+          };
+        }
+        return r;
+      })
+    }));
+  };
+
+  const deleteGamePlayRecord = (reviewId: string, playId: string) => {
+    setState(prev => ({
+      ...prev,
+      gameReviews: prev.gameReviews.map(r => {
+        if (r.id === reviewId) {
+          return {
+            ...r,
+            playRecords: r.playRecords.filter(p => p.id !== playId)
+          };
+        }
+        return r;
+      })
     }));
   };
 
@@ -182,5 +267,13 @@ export function useStore() {
     updateRestaurant,
     deleteRestaurant,
     importData,
+    addMenstrualRecord,
+    deleteMenstrualRecord,
+    addGameReview,
+    updateGameReview,
+    deleteGameReview,
+    addGamePlayRecord,
+    updateGamePlayRecord,
+    deleteGamePlayRecord,
   };
 }

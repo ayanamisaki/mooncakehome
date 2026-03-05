@@ -36,27 +36,26 @@ const PetPage: React.FC<PageProps> = ({
     duration: 10
   });
 
-  // Cat Food Auto-switch Logic
-  useEffect(() => {
-    if (state.settings.catFoodMode === 'transition' && state.settings.catFoodTransition?.isActive) {
-      const startDate = parseISO(state.settings.catFoodTransition.startDate);
-      if (isValid(startDate)) {
-        const planDays = state.settings.catFoodTransition.plan.length;
-        if (differenceInDays(selectedDate, startDate) >= planDays) {
-          updateSettings({ catFoodMode: 'daily', catFoodTransition: { ...state.settings.catFoodTransition, isActive: false } });
+  const catFoodMode = useMemo(() => {
+    if (state.settings.catFoodTransition?.isActive) {
+      const start = parseISO(state.settings.catFoodTransition.startDate);
+      if (isValid(start)) {
+        const diff = differenceInDays(selectedDate, start);
+        if (diff >= 0 && diff < state.settings.catFoodTransition.plan.length) {
+          return 'transition';
         }
       }
     }
-  }, [selectedDate, state.settings.catFoodMode, state.settings.catFoodTransition, updateSettings]);
+    return 'daily';
+  }, [selectedDate, state.settings.catFoodTransition]);
 
   // Water Filter Logic
   const filterLastChange = parseISO(state.settings.waterFilterLastChange || format(new Date(), 'yyyy-MM-dd'));
   const filterDays = isValid(filterLastChange) ? differenceInDays(selectedDate, filterLastChange) : 0;
-  const filterStatus = filterDays < 30 ? 'text-green-500' : 'text-red-500';
+  const filterStatus = filterDays <= 30 ? 'text-green-500' : filterDays < 90 ? 'text-orange-500' : 'text-red-500';
 
   const catTasks = useMemo(() => {
     let tasks = [...(dailyRecord.tasks.cat || [])];
-    const { catFoodMode } = state.settings;
 
     // Add dynamic tasks
     if (catFoodMode === 'daily') {
@@ -68,7 +67,7 @@ const PetPage: React.FC<PageProps> = ({
     }
 
     return tasks;
-  }, [dailyRecord.tasks.cat, state.settings.catFoodMode]);
+  }, [dailyRecord.tasks.cat, catFoodMode]);
 
   const handleToggleTask = (taskId: string, subTaskId?: string) => {
     const category = 'cat';
@@ -122,7 +121,7 @@ const PetPage: React.FC<PageProps> = ({
   };
 
   const renderCatFoodStatus = () => {
-    const { catFoodMode, catFoodTransition, catFoodDaily } = state.settings;
+    const { catFoodTransition, catFoodDaily, catFoodRecords } = state.settings;
     
     if (catFoodMode === 'transition' && catFoodTransition) {
       const startDate = catFoodTransition.startDate || format(new Date(), 'yyyy-MM-dd');
@@ -159,19 +158,30 @@ const PetPage: React.FC<PageProps> = ({
           )}
         </div>
       );
-    } else if (catFoodDaily) {
-      const startDate = catFoodDaily.startDate || format(new Date(), 'yyyy-MM-dd');
-      const daysSinceStart = differenceInDays(selectedDate, parseISO(startDate));
-      return (
-        <div className="bg-stone-50 p-3 rounded-xl mb-3 text-xs border border-stone-100">
-          <div className="flex justify-between items-center mb-1">
-            <p className="font-bold text-stone-800">日常模式: {catFoodDaily.brand}</p>
-            <span className="text-[10px] bg-stone-200 text-stone-600 px-2 py-0.5 rounded">第 {daysSinceStart} 天</span>
+    } else {
+      const activeRecord = (catFoodRecords || []).find(r => !r.isFinished && parseISO(r.startDate) <= selectedDate && (!r.endDate || parseISO(r.endDate) >= selectedDate));
+      const displayData = activeRecord || catFoodDaily;
+      
+      if (displayData) {
+        const startDate = displayData.startDate || format(new Date(), 'yyyy-MM-dd');
+        const daysSinceStart = differenceInDays(selectedDate, parseISO(startDate)) + 1;
+        return (
+          <div className="bg-stone-50 p-3 rounded-xl mb-3 text-xs border border-stone-100">
+            <div className="flex justify-between items-center mb-1">
+              <p className="font-bold text-stone-800">日常模式: {displayData.brand}</p>
+              <span className="text-[10px] bg-stone-200 text-stone-600 px-2 py-0.5 rounded">第 {daysSinceStart} 天</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <p className="text-stone-500 text-[10px]">本包猫粮于 {startDate} 启封</p>
+              <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">
+                <Info size={10} />
+                日常量: {displayData.dailyGrams || 100}g
+              </div>
+            </div>
+            {displayData.price && <p className="text-stone-400 text-[10px]">价格: ¥{displayData.price}</p>}
           </div>
-          <p className="text-stone-500 text-[10px]">本包猫粮于 {startDate} 启封</p>
-          {catFoodDaily.price && <p className="text-stone-400 text-[10px]">价格: ¥{catFoodDaily.price}</p>}
-        </div>
-      );
+        );
+      }
     }
     return null;
   };

@@ -9,9 +9,12 @@ interface PageProps {
   dailyRecord: DailyRecord;
   updateDailyRecord: (record: Partial<DailyRecord>) => void;
   state: AppState;
+  selectedDate: Date;
+  addMenstrualRecord: (dateStr: string) => void;
+  deleteMenstrualRecord: (dateStr: string) => void;
 }
 
-const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord, state }) => {
+const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord, state, selectedDate, addMenstrualRecord, deleteMenstrualRecord }) => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingFitness, setEditingFitness] = useState<FitnessLog | null>(null);
   const [newTaskName, setNewTaskName] = useState('');
@@ -43,40 +46,77 @@ const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord, sta
 
   // Menstrual Phase Calculation
   const menstrualInfo = useMemo(() => {
-    const settings = state.settings.menstrualSettings || {
-      lastStartDate: '',
-      avgCycleDays: 30,
-      avgPeriodDays: 7
-    };
+    const records = [...state.menstrualRecords].sort();
+    const lastStartStr = records.reverse()[0];
+    const settings = state.settings.menstrualSettings || { avgCycleDays: 28, avgPeriodDays: 7 };
     
-    if (!settings.lastStartDate) return null;
+    if (!lastStartStr) return null;
 
-    const lastDate = parseISO(settings.lastStartDate);
+    const lastDate = parseISO(lastStartStr);
     if (!isValid(lastDate)) return null;
-    const today = new Date();
-    const daysSince = differenceInDays(today, lastDate);
     
-    const cycleDay = (daysSince % (settings.avgCycleDays || 30)) + 1;
-    const isPeriod = personal.health?.isPeriod;
+    const diffDays = differenceInDays(selectedDate, lastDate);
+    const cycleDays = settings.avgCycleDays || 28;
+    const periodDays = settings.avgPeriodDays || 7;
+    
+    if (diffDays < 0) return null;
 
     let phase = '';
-    let tips = '';
-    if (cycleDay <= (settings.avgPeriodDays || 7)) {
-      phase = '经期';
-      tips = '注意保暖，避免生冷，多休息。';
-    } else if (cycleDay <= 14) {
-      phase = '卵泡期';
-      tips = '精力充沛，适合高强度运动和学习。';
-    } else if (cycleDay <= 16) {
-      phase = '排卵期';
-      tips = '可能感到腹胀，注意皮肤清洁。';
+    let dayDisplay = '';
+    let tips = { mood: '', physical: '', advice: '' };
+
+    if (diffDays < cycleDays) {
+      const follicularEnd = 7 + (cycleDays - 21);
+      const ovulatoryEnd = follicularEnd + 7;
+      
+      if (diffDays < 7) {
+        phase = '月经期';
+        dayDisplay = `${diffDays + 1}/7`;
+        tips = {
+          mood: '可能感到疲倦或情绪低落',
+          physical: '腹痛、腰酸、乏力',
+          advice: '注意保暖，避免剧烈运动，多喝热水'
+        };
+      } else if (diffDays < follicularEnd) {
+        phase = '卵泡期';
+        dayDisplay = `${diffDays - 7 + 1}/${follicularEnd - 7}`;
+        tips = {
+          mood: '情绪逐渐稳定，自信心增强',
+          physical: '皮肤状态变好，精力充沛',
+          advice: '适合高强度运动和学习新技能'
+        };
+      } else if (diffDays < ovulatoryEnd) {
+        phase = '排卵期';
+        dayDisplay = `${diffDays - follicularEnd + 1}/7`;
+        tips = {
+          mood: '心情愉悦，社交欲望强',
+          physical: '可能感到轻微腹胀，体温升高',
+          advice: '注意皮肤清洁，保持充足睡眠'
+        };
+      } else {
+        phase = '黄体期';
+        dayDisplay = `${diffDays - ovulatoryEnd + 1}/7`;
+        tips = {
+          mood: '可能出现焦虑、易怒（PMS）',
+          physical: '乳房胀痛、皮肤出油、水肿',
+          advice: '清淡饮食，减少盐分摄入，保持心情舒畅'
+        };
+      }
     } else {
-      phase = '黄体期';
-      tips = '可能出现PMS，保持心情舒畅，清淡饮食。';
+      phase = '预计月经期';
+      const delay = diffDays - cycleDays;
+      dayDisplay = delay === 0 ? '1天' : `推迟${delay}天`;
+      tips = {
+        mood: '情绪波动可能增大',
+        physical: '身体可能感到沉重',
+        advice: '做好经期准备，保持心情平和'
+      };
     }
 
-    return { cycleDay, phase, tips, isPeriod };
-  }, [state.settings.menstrualSettings, personal.health?.isPeriod]);
+    const isTodayRecord = state.menstrualRecords.includes(format(selectedDate, 'yyyy-MM-dd'));
+
+    return { phase, dayDisplay, tips, isTodayRecord };
+  }, [state.menstrualRecords, state.settings.menstrualSettings, selectedDate]);
 
   const handleToggle = (id: string) => {
     updateDailyRecord({
@@ -541,37 +581,53 @@ const PersonalPage: React.FC<PageProps> = ({ dailyRecord, updateDailyRecord, sta
             <div className="bg-stone-50 p-3 rounded-2xl border border-stone-100 text-center">
               <div className="text-[10px] text-stone-400 uppercase font-bold mb-1">周期第几天</div>
               <div className="text-lg font-black text-stone-800">
-                {menstrualInfo?.isPeriod ? `${menstrualInfo.cycleDay} 天` : '--'}
+                {menstrualInfo?.dayDisplay || '--'}
               </div>
             </div>
           </div>
 
           <div className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-100">
-            <label className="flex items-center gap-2 text-xs font-bold text-stone-600 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={personal.health?.isPeriod}
-                onChange={(e) => updatePersonal('health', { ...personal.health, isPeriod: e.target.checked })}
-                className="rounded text-rose-600 focus:ring-rose-500"
-              />
-              今日经期
-            </label>
-            {personal.health?.isPeriod && menstrualInfo && (
-              <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-bold">
-                第 {menstrualInfo.cycleDay} 天
-              </span>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-stone-600">月经记录</span>
+              <span className="text-[10px] text-stone-400">若今日月经开始，请添加记录</span>
+            </div>
+            {menstrualInfo?.isTodayRecord ? (
+              <button 
+                onClick={() => deleteMenstrualRecord(format(selectedDate, 'yyyy-MM-dd'))}
+                className="px-4 py-2 bg-rose-100 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-200 transition-colors"
+              >
+                取消记录
+              </button>
+            ) : (
+              <button 
+                onClick={() => addMenstrualRecord(format(selectedDate, 'yyyy-MM-dd'))}
+                className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors shadow-md shadow-rose-600/20"
+              >
+                添加记录
+              </button>
             )}
           </div>
 
           {menstrualInfo && (
-            <div className="bg-rose-50 p-3 rounded-2xl border border-rose-100">
+            <div className="bg-rose-50 p-3 rounded-2xl border border-rose-100 space-y-3">
               <div className="flex items-center gap-2 text-rose-700 font-bold text-xs mb-1">
                 <AlertCircle size={14} />
                 <span>健康小贴士</span>
               </div>
-              <p className="text-[10px] text-rose-600 leading-relaxed">
-                {menstrualInfo.tips}
-              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white/50 p-2 rounded-xl text-center border border-rose-200">
+                  <div className="text-[8px] text-rose-400 uppercase font-bold mb-1">情绪</div>
+                  <div className="text-[10px] text-rose-600 font-medium">{menstrualInfo.tips.mood}</div>
+                </div>
+                <div className="bg-white/50 p-2 rounded-xl text-center border border-rose-200">
+                  <div className="text-[8px] text-rose-400 uppercase font-bold mb-1">身体</div>
+                  <div className="text-[10px] text-rose-600 font-medium">{menstrualInfo.tips.physical}</div>
+                </div>
+                <div className="bg-white/50 p-2 rounded-xl text-center border border-rose-200">
+                  <div className="text-[8px] text-rose-400 uppercase font-bold mb-1">建议</div>
+                  <div className="text-[10px] text-rose-600 font-medium">{menstrualInfo.tips.advice}</div>
+                </div>
+              </div>
             </div>
           )}
         </div>

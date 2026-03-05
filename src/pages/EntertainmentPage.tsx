@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Gamepad2, Plus, Star, Trash2, Clock, Utensils, MapPin, History } from 'lucide-react';
 import { Card, Modal } from '../components/UI';
-import { DailyRecord, EntertainmentLog, Restaurant, DiningLog, AppState } from '../types';
+import { DailyRecord, EntertainmentLog, Restaurant, DiningLog, AppState, GameReview, GamePlayRecord } from '../types';
 import { clsx } from 'clsx';
+import { format } from 'date-fns';
 
 interface PageProps {
   dailyRecord: DailyRecord;
@@ -11,6 +12,12 @@ interface PageProps {
   addRestaurant: (res: Omit<Restaurant, 'id'>) => void;
   updateRestaurant: (res: Restaurant) => void;
   deleteRestaurant: (id: string) => void;
+  addGameReview: (review: Omit<GameReview, 'id' | 'playRecords'>) => void;
+  updateGameReview: (review: GameReview) => void;
+  deleteGameReview: (id: string) => void;
+  addGamePlayRecord: (reviewId: string, record: Omit<GamePlayRecord, 'id'>) => void;
+  updateGamePlayRecord: (reviewId: string, record: GamePlayRecord) => void;
+  deleteGamePlayRecord: (reviewId: string, recordId: string) => void;
 }
 
 const EntertainmentPage: React.FC<PageProps> = ({ 
@@ -19,11 +26,21 @@ const EntertainmentPage: React.FC<PageProps> = ({
   state,
   addRestaurant,
   updateRestaurant,
-  deleteRestaurant
+  deleteRestaurant,
+  addGameReview,
+  updateGameReview,
+  deleteGameReview,
+  addGamePlayRecord,
+  updateGamePlayRecord,
+  deleteGamePlayRecord
 }) => {
   const [isAddingEnt, setIsAddingEnt] = useState(false);
   const [isAddingRestaurant, setIsAddingRestaurant] = useState(false);
   const [isAddingDining, setIsAddingDining] = useState(false);
+  const [isAddingGameReview, setIsAddingGameReview] = useState(false);
+  const [editingGameReview, setEditingGameReview] = useState<GameReview | null>(null);
+  const [selectedReviewForPlay, setSelectedReviewForPlay] = useState<GameReview | null>(null);
+  const [editingPlayRecord, setEditingPlayRecord] = useState<{ reviewId: string, record: GamePlayRecord } | null>(null);
   
   const [newLog, setNewLog] = useState<Partial<EntertainmentLog>>({
     category: 'CS',
@@ -32,10 +49,37 @@ const EntertainmentPage: React.FC<PageProps> = ({
   });
   const [newRes, setNewRes] = useState<Partial<Restaurant>>({ category: 'NPC', rating: 5 });
   const [newDining, setNewDining] = useState<Partial<DiningLog>>({ rating: 5, cost: 0, peopleCount: 1 });
+  const [newGameReview, setNewGameReview] = useState<Partial<GameReview>>({ rating: 5, avgDuration: 60 });
+  const [newPlayRecord, setNewPlayRecord] = useState<Partial<GamePlayRecord>>({ rating: 5, date: format(new Date(), 'yyyy-MM-dd') });
 
   const entLogs = dailyRecord.entertainment || [];
   const diningLogs = dailyRecord.dining || [];
   const restaurants = state.restaurants || [];
+  const gameReviews = useMemo(() => [...(state.gameReviews || [])].sort((a, b) => b.rating - a.rating), [state.gameReviews]);
+
+  const handleAddGameReview = () => {
+    if (!newGameReview.name) return;
+    if (editingGameReview) {
+      updateGameReview({ ...editingGameReview, ...newGameReview } as GameReview);
+    } else {
+      addGameReview(newGameReview as Omit<GameReview, 'id' | 'playRecords'>);
+    }
+    setIsAddingGameReview(false);
+    setEditingGameReview(null);
+    setNewGameReview({ rating: 5, avgDuration: 60 });
+  };
+
+  const handleAddPlayRecord = () => {
+    if (!selectedReviewForPlay || !newPlayRecord.date) return;
+    if (editingPlayRecord) {
+      updateGamePlayRecord(editingPlayRecord.reviewId, { ...editingPlayRecord.record, ...newPlayRecord } as GamePlayRecord);
+    } else {
+      addGamePlayRecord(selectedReviewForPlay.id, newPlayRecord as Omit<GamePlayRecord, 'id'>);
+    }
+    setSelectedReviewForPlay(null);
+    setEditingPlayRecord(null);
+    setNewPlayRecord({ rating: 5, date: format(new Date(), 'yyyy-MM-dd') });
+  };
 
   const handleAddEntLog = () => {
     if (!newLog.category) return;
@@ -92,6 +136,212 @@ const EntertainmentPage: React.FC<PageProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Game Play Evaluation */}
+      <Card 
+        title="体验项目评价" 
+        icon={<Star className="text-yellow-500" size={20} />}
+        onAdd={() => {
+          setEditingGameReview(null);
+          setNewGameReview({ rating: 5, avgDuration: 60 });
+          setIsAddingGameReview(true);
+        }}
+      >
+        {gameReviews.length === 0 ? (
+          <div className="text-center py-8 text-stone-400 text-sm italic">
+            还没有项目评价哦，点击右上角添加~
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {gameReviews.map((review) => (
+              <div key={review.id} className="bg-stone-50 rounded-2xl p-4 border border-stone-100 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="font-black text-stone-800 text-base">{review.name}</h4>
+                    <p className="text-[10px] text-stone-400 mt-0.5">{review.description}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={() => {
+                        setEditingGameReview(review);
+                        setNewGameReview(review);
+                        setIsAddingGameReview(true);
+                      }}
+                      className="p-1.5 text-stone-400 hover:text-blue-500 transition-colors"
+                    >
+                      <Plus size={16} className="rotate-45" /> {/* Using Plus as Edit icon placeholder or just use text */}
+                    </button>
+                    <button 
+                      onClick={() => deleteGameReview(review.id)}
+                      className="p-1.5 text-stone-400 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 text-[10px] font-bold">
+                  <div className="flex items-center gap-1 text-stone-500">
+                    <Clock size={12} /> 平均 {review.avgDuration}min
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    {[...Array(5)].map((_, i) => (
+                      <Star 
+                        key={i} 
+                        size={12} 
+                        className={i < review.rating ? "fill-yellow-400 text-yellow-400" : "text-stone-300"} 
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-stone-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider">游玩记录</span>
+                    <button 
+                      onClick={() => {
+                        setSelectedReviewForPlay(review);
+                        setNewPlayRecord({ rating: 5, date: format(new Date(), 'yyyy-MM-dd') });
+                        setEditingPlayRecord(null);
+                      }}
+                      className="text-[10px] text-blue-600 font-bold hover:underline"
+                    >
+                      + 添加记录
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {review.playRecords?.map((record) => (
+                      <div key={record.id} className="bg-white p-2 rounded-xl border border-stone-100 flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-bold text-stone-400">{record.date.slice(5)}</span>
+                          <span className="text-xs text-stone-700">{record.feeling}</span>
+                          <div className="flex items-center gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <Star 
+                                key={i} 
+                                size={8} 
+                                className={i < record.rating ? "fill-yellow-400 text-yellow-400" : "text-stone-300"} 
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => {
+                              setSelectedReviewForPlay(review);
+                              setEditingPlayRecord({ reviewId: review.id, record });
+                              setNewPlayRecord(record);
+                            }}
+                            className="p-1 text-stone-300 hover:text-blue-500"
+                          >
+                            <Plus size={10} className="rotate-45" />
+                          </button>
+                          <button 
+                            onClick={() => deleteGamePlayRecord(review.id, record.id)}
+                            className="p-1 text-stone-300 hover:text-red-500"
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Modals */}
+      <Modal
+        isOpen={isAddingGameReview}
+        onClose={() => setIsAddingGameReview(false)}
+        title={editingGameReview ? "编辑项目评价" : "新增项目评价"}
+        onSave={handleAddGameReview}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-stone-400 mb-2">项目名称</label>
+            <input 
+              type="text" 
+              value={newGameReview.name || ''}
+              onChange={(e) => setNewGameReview({ ...newGameReview, name: e.target.value })}
+              className="w-full bg-stone-50 rounded-xl p-3 text-sm outline-none border border-stone-100 focus:border-yellow-500 transition-all"
+              placeholder="项目名称..."
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-stone-400 mb-2">描述</label>
+            <textarea 
+              value={newGameReview.description || ''}
+              onChange={(e) => setNewGameReview({ ...newGameReview, description: e.target.value })}
+              className="w-full h-20 bg-stone-50 rounded-xl p-3 text-sm outline-none border border-stone-100 focus:border-yellow-500 transition-all"
+              placeholder="简单描述一下..."
+            />
+          </div>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-stone-400 mb-2">平均时长 (min)</label>
+              <input 
+                type="number" 
+                value={newGameReview.avgDuration || ''}
+                onChange={(e) => setNewGameReview({ ...newGameReview, avgDuration: parseInt(e.target.value) || 0 })}
+                className="w-full bg-stone-50 rounded-xl p-3 text-sm outline-none border border-stone-100 focus:border-yellow-500 transition-all"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-stone-400 mb-2">评分</label>
+              <div className="flex items-center gap-1 h-[46px]">
+                {[1, 2, 3, 4, 5].map(star => (
+                  <button key={star} onClick={() => setNewGameReview({ ...newGameReview, rating: star })} className="p-1">
+                    <Star size={24} className={star <= (newGameReview.rating || 0) ? "fill-yellow-400 text-yellow-400" : "text-stone-300"} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!selectedReviewForPlay}
+        onClose={() => setSelectedReviewForPlay(null)}
+        title={editingPlayRecord ? "编辑游玩记录" : "新增游玩记录"}
+        onSave={handleAddPlayRecord}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-stone-400 mb-2">日期</label>
+            <input 
+              type="date" 
+              value={newPlayRecord.date || ''}
+              onChange={(e) => setNewPlayRecord({ ...newPlayRecord, date: e.target.value })}
+              className="w-full bg-stone-50 rounded-xl p-3 text-sm outline-none border border-stone-100 focus:border-blue-500 transition-all"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-stone-400 mb-2">感受</label>
+            <input 
+              type="text" 
+              value={newPlayRecord.feeling || ''}
+              onChange={(e) => setNewPlayRecord({ ...newPlayRecord, feeling: e.target.value })}
+              className="w-full bg-stone-50 rounded-xl p-3 text-sm outline-none border border-stone-100 focus:border-blue-500 transition-all"
+              placeholder="今天玩得怎么样？"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-stone-400 mb-2">评分</label>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map(star => (
+                <button key={star} onClick={() => setNewPlayRecord({ ...newPlayRecord, rating: star })} className="p-1">
+                  <Star size={24} className={star <= (newPlayRecord.rating || 0) ? "fill-yellow-400 text-yellow-400" : "text-stone-300"} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
       {/* Entertainment Logs */}
       <Card 
         title="娱乐记录" 
