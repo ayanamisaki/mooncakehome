@@ -37,17 +37,31 @@ const PetPage: React.FC<PageProps> = ({
   });
 
   const catFoodMode = useMemo(() => {
-    if (state.settings.catFoodTransition?.isActive) {
-      const start = parseISO(state.settings.catFoodTransition.startDate);
+    const { catFoodTransition, catFoodTransitionHistory } = state.settings;
+    const allTransitions = [
+      ...(catFoodTransition ? [catFoodTransition] : []),
+      ...(catFoodTransitionHistory || [])
+    ];
+
+    for (const trans of allTransitions) {
+      const start = parseISO(trans.startDate);
       if (isValid(start)) {
         const diff = differenceInDays(selectedDate, start);
-        if (diff >= 0 && diff < state.settings.catFoodTransition.plan.length) {
+        const dayNumber = diff + 1;
+        const plan = trans.plan.find(p => p.day === dayNumber);
+        
+        if (plan) {
+          // If it's not active, it must be before or on the endDate
+          const dateStr = format(selectedDate, 'yyyy-MM-dd');
+          if (!trans.isActive && trans.endDate && dateStr > trans.endDate) {
+            continue;
+          }
           return 'transition';
         }
       }
     }
     return 'daily';
-  }, [selectedDate, state.settings.catFoodTransition]);
+  }, [selectedDate, state.settings.catFoodTransition, state.settings.catFoodTransitionHistory]);
 
   // Water Filter Logic
   const filterLastChange = parseISO(state.settings.waterFilterLastChange || format(new Date(), 'yyyy-MM-dd'));
@@ -121,45 +135,71 @@ const PetPage: React.FC<PageProps> = ({
   };
 
   const renderCatFoodStatus = () => {
-    const { catFoodTransition, catFoodDaily, catFoodRecords } = state.settings;
+    const { catFoodTransition, catFoodTransitionHistory, catFoodDaily, catFoodRecords } = state.settings;
     
-    if (catFoodMode === 'transition' && catFoodTransition) {
-      const startDate = catFoodTransition.startDate || format(new Date(), 'yyyy-MM-dd');
-      const daysSinceStart = differenceInDays(selectedDate, parseISO(startDate)) + 1;
-      const plan = catFoodTransition.plan || [];
-      const dayPlan = plan.find(p => p.day === daysSinceStart);
+    if (catFoodMode === 'transition') {
+      const allTransitions = [
+        ...(catFoodTransition ? [catFoodTransition] : []),
+        ...(catFoodTransitionHistory || [])
+      ];
       
-      return (
-        <div className="bg-amber-50 p-3 rounded-xl mb-3 text-xs border border-amber-100">
-          <div className="flex justify-between font-bold mb-2 text-amber-800 border-b border-amber-200 pb-1">
-            <span>换粮模式: 第 {daysSinceStart} 天</span>
-            <span>共 {plan.length} 天计划</span>
-          </div>
-          {dayPlan ? (
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-stone-600 font-medium">配粮方案:</span>
-                <span className="bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-bold">总量 {dayPlan.totalGrams}g</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-white/60 p-2 rounded-lg border border-amber-100">
-                  <p className="text-[10px] text-amber-600 mb-1">旧粮: {catFoodTransition.oldFood}</p>
-                  <p className="text-sm font-bold text-amber-900">{(dayPlan.totalGrams * dayPlan.oldPercent / 100).toFixed(1)}g <span className="text-[10px] font-normal opacity-60">({dayPlan.oldPercent}%)</span></p>
-                </div>
-                <div className="bg-white/60 p-2 rounded-lg border border-amber-100">
-                  <p className="text-[10px] text-amber-600 mb-1">新粮: {catFoodTransition.newFood}</p>
-                  <p className="text-sm font-bold text-amber-900">{(dayPlan.totalGrams * dayPlan.newPercent / 100).toFixed(1)}g <span className="text-[10px] font-normal opacity-60">({dayPlan.newPercent}%)</span></p>
-                </div>
-              </div>
-              <p className="text-[10px] text-stone-400 mt-1 italic">理由: {catFoodTransition.reason}</p>
+      const activeTrans = allTransitions.find(trans => {
+        const start = parseISO(trans.startDate);
+        if (isValid(start)) {
+          const diff = differenceInDays(selectedDate, start);
+          const dayNumber = diff + 1;
+          const plan = trans.plan.find(p => p.day === dayNumber);
+          if (plan) {
+            const dateStr = format(selectedDate, 'yyyy-MM-dd');
+            if (!trans.isActive && trans.endDate && dateStr > trans.endDate) {
+              return false;
+            }
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (activeTrans) {
+        const startDate = activeTrans.startDate || format(new Date(), 'yyyy-MM-dd');
+        const daysSinceStart = differenceInDays(selectedDate, parseISO(startDate)) + 1;
+        const plan = activeTrans.plan || [];
+        const dayPlan = plan.find(p => p.day === daysSinceStart);
+        
+        return (
+          <div className="bg-amber-50 p-3 rounded-xl mb-3 text-xs border border-amber-100">
+            <div className="flex justify-between font-bold mb-2 text-amber-800 border-b border-amber-200 pb-1">
+              <span>换粮模式: 第 {daysSinceStart} 天 {!activeTrans.isActive && '(已终止)'}</span>
+              <span>共 {plan.length} 天计划</span>
             </div>
-          ) : (
-            <p className="text-stone-400 italic">超出计划天数</p>
-          )}
-        </div>
-      );
-    } else {
-      const activeRecord = (catFoodRecords || []).find(r => !r.isFinished && parseISO(r.startDate) <= selectedDate && (!r.endDate || parseISO(r.endDate) >= selectedDate));
+            {dayPlan ? (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-stone-600 font-medium">配粮方案:</span>
+                  <span className="bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-bold">总量 {dayPlan.totalGrams}g</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white/60 p-2 rounded-lg border border-amber-100">
+                    <p className="text-[10px] text-amber-600 mb-1">旧粮: {activeTrans.oldFood}</p>
+                    <p className="text-sm font-bold text-amber-900">{(dayPlan.totalGrams * dayPlan.oldPercent / 100).toFixed(1)}g <span className="text-[10px] font-normal opacity-60">({dayPlan.oldPercent}%)</span></p>
+                  </div>
+                  <div className="bg-white/60 p-2 rounded-lg border border-amber-100">
+                    <p className="text-[10px] text-amber-600 mb-1">新粮: {activeTrans.newFood}</p>
+                    <p className="text-sm font-bold text-amber-900">{(dayPlan.totalGrams * dayPlan.newPercent / 100).toFixed(1)}g <span className="text-[10px] font-normal opacity-60">({dayPlan.newPercent}%)</span></p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-stone-400 mt-1 italic">理由: {activeTrans.reason}</p>
+              </div>
+            ) : (
+              <p className="text-stone-400 italic">超出计划天数</p>
+            )}
+          </div>
+        );
+      }
+    }
+    
+    // Fallback to daily mode
+    const activeRecord = (catFoodRecords || []).find(r => !r.isFinished && parseISO(r.startDate) <= selectedDate && (!r.endDate || parseISO(r.endDate) >= selectedDate));
       const displayData = activeRecord || catFoodDaily;
       
       if (displayData) {
@@ -182,7 +222,6 @@ const PetPage: React.FC<PageProps> = ({
           </div>
         );
       }
-    }
     return null;
   };
 

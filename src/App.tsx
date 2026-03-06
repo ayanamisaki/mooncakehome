@@ -77,11 +77,14 @@ export default function App() {
       const start = parseISO(transition.startDate);
       if (isValid(start)) {
         const today = new Date();
+        const todayStr = format(today, 'yyyy-MM-dd');
         const diff = differenceInDays(today, start);
-        // If today is beyond the plan, switch to daily mode with the new food
-        if (diff >= transition.plan.length) {
+        
+        // Only auto-switch if we are exactly at the end of the plan today
+        // This prevents historical data entry from being auto-deactivated
+        if (diff === transition.plan.length && transition.startDate <= todayStr) {
           updateSettings({
-            catFoodTransition: { ...transition, isActive: false },
+            catFoodTransition: { ...transition, isActive: false, endDate: todayStr },
             catFoodDaily: {
               brand: transition.newFood,
               price: state.settings.catFoodDaily?.price || 0,
@@ -134,32 +137,42 @@ export default function App() {
         <h1 className="text-lg font-bold text-stone-800 flex items-center gap-2">
           <span className="text-2xl">🥮</span> 小月饼之家
         </h1>
-        <div className="flex items-center gap-2 bg-stone-100 rounded-full px-3 py-1">
-          <button 
-            onClick={() => setSelectedDate(prev => subDays(prev, 1))}
-            className="p-1 hover:bg-stone-200 rounded-full transition-colors"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <div className="flex items-center gap-1 text-sm font-medium min-w-[100px] justify-center relative">
-            <CalendarIcon size={14} className="text-stone-500" />
-            <span className="cursor-pointer">{dateStr === format(new Date(), 'yyyy-MM-dd') ? '今天' : format(selectedDate, 'MM-dd')}</span>
-            <input 
-              type="date" 
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              value={dateStr}
-              onChange={(e) => {
-                const d = new Date(e.target.value);
-                if (isValid(d)) setSelectedDate(d);
-              }}
-            />
+        <div className="flex items-center gap-2">
+          {dateStr !== format(new Date(), 'yyyy-MM-dd') && (
+            <button 
+              onClick={() => setSelectedDate(new Date())}
+              className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-bold hover:bg-amber-200 transition-colors"
+            >
+              回今天
+            </button>
+          )}
+          <div className="flex items-center gap-2 bg-stone-100 rounded-full px-3 py-1">
+            <button 
+              onClick={() => setSelectedDate(prev => subDays(prev, 1))}
+              className="p-1 hover:bg-stone-200 rounded-full transition-colors"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div className="flex items-center gap-1 text-sm font-medium min-w-[100px] justify-center relative">
+              <CalendarIcon size={14} className="text-stone-500" />
+              <span className="cursor-pointer">{dateStr === format(new Date(), 'yyyy-MM-dd') ? '今天' : format(selectedDate, 'MM-dd')}</span>
+              <input 
+                type="date" 
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                value={dateStr}
+                onChange={(e) => {
+                  const d = new Date(e.target.value);
+                  if (isValid(d)) setSelectedDate(d);
+                }}
+              />
+            </div>
+            <button 
+              onClick={() => setSelectedDate(prev => addDays(prev, 1))}
+              className="p-1 hover:bg-stone-200 rounded-full transition-colors"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
-          <button 
-            onClick={() => setSelectedDate(prev => addDays(prev, 1))}
-            className="p-1 hover:bg-stone-200 rounded-full transition-colors"
-          >
-            <ChevronRight size={18} />
-          </button>
         </div>
       </header>
 

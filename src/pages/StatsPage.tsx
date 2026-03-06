@@ -185,7 +185,7 @@ const StatsPage: React.FC<PageProps> = ({ state, updateSettings }) => {
     
     return days.map(date => {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const { catFoodTransition, catFoodDaily } = state.settings;
+      const { catFoodTransition, catFoodTransitionHistory, catFoodDaily } = state.settings;
       const record = state.dailyData[dateStr];
       
       let type: 'transition' | 'daily' | 'none' = 'none';
@@ -193,25 +193,40 @@ const StatsPage: React.FC<PageProps> = ({ state, updateSettings }) => {
       let amount = '';
       let details: any = { treats: record?.catTreats || [], plays: record?.catPlays || [] };
       
-      if (catFoodTransition?.isActive) {
-        const transStart = parseISO(catFoodTransition.startDate);
+      // Check current transition and history
+      const allTransitions = [
+        ...(catFoodTransition ? [catFoodTransition] : []),
+        ...(catFoodTransitionHistory || [])
+      ];
+
+      for (const trans of allTransitions) {
+        const transStart = parseISO(trans.startDate);
         if (isValid(transStart)) {
           const diff = differenceInDays(date, transStart);
-          if (diff >= 0 && diff < catFoodTransition.plan.length) {
+          const dayNumber = diff + 1;
+          
+          // If the plan is not active, check if the date is within the plan's duration and before its end date
+          const plan = trans.plan.find(p => p.day === dayNumber);
+          if (plan) {
+            // If it's not active, it must be before or on the endDate
+            if (!trans.isActive && trans.endDate && dateStr > trans.endDate) {
+              continue;
+            }
+            
             type = 'transition';
-            const plan = catFoodTransition.plan[diff];
-            brand = `${catFoodTransition.oldFood} & ${catFoodTransition.newFood}`;
+            brand = `${trans.oldFood} & ${trans.newFood}`;
             amount = `旧: ${(plan.totalGrams * plan.oldPercent / 100).toFixed(1)}g, 新: ${(plan.totalGrams * plan.newPercent / 100).toFixed(1)}g (共${plan.totalGrams}g)`;
             details.food = [
-              { name: catFoodTransition.oldFood, amount: (plan.totalGrams * plan.oldPercent / 100).toFixed(1) + 'g' },
-              { name: catFoodTransition.newFood, amount: (plan.totalGrams * plan.newPercent / 100).toFixed(1) + 'g' }
+              { name: trans.oldFood, amount: (plan.totalGrams * plan.oldPercent / 100).toFixed(1) + 'g' },
+              { name: trans.newFood, amount: (plan.totalGrams * plan.newPercent / 100).toFixed(1) + 'g' }
             ];
+            break; // Found a matching transition
           }
         }
       }
       
       if (type === 'none') {
-        const activeRecord = state.settings.catFoodRecords.find(r => !r.isFinished && parseISO(r.startDate) <= date && (!r.endDate || parseISO(r.endDate) >= date));
+        const activeRecord = (state.settings.catFoodRecords || []).find(r => !r.isFinished && parseISO(r.startDate) <= date && (!r.endDate || parseISO(r.endDate) >= date));
         if (activeRecord) {
           type = 'daily';
           brand = activeRecord.brand;
@@ -410,11 +425,11 @@ const StatsPage: React.FC<PageProps> = ({ state, updateSettings }) => {
       {/* Cat Food Bag Statistics */}
       <Card title="猫粮消耗统计 (按包)" icon={<Cat className="text-amber-600" size={20} />}>
         <div className="space-y-4">
-          {state.settings.catFoodRecords.length === 0 ? (
+          {(!state.settings.catFoodRecords || state.settings.catFoodRecords.length === 0) ? (
             <p className="text-center py-4 text-stone-400 text-xs italic">暂无猫粮记录数据</p>
           ) : (
             <div className="space-y-3">
-              {state.settings.catFoodRecords.sort((a,b) => b.startDate.localeCompare(a.startDate)).map(record => {
+              {[...state.settings.catFoodRecords].sort((a,b) => b.startDate.localeCompare(a.startDate)).map(record => {
                 const start = parseISO(record.startDate);
                 const end = record.endDate ? parseISO(record.endDate) : new Date();
                 const days = isValid(start) && isValid(end) ? differenceInDays(end, start) + 1 : 0;
@@ -539,9 +554,11 @@ const StatsPage: React.FC<PageProps> = ({ state, updateSettings }) => {
                     cx="50%"
                     cy="50%"
                     innerRadius={40}
-                    outerRadius={70}
+                    outerRadius={60}
                     paddingAngle={5}
                     dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={true}
                   >
                     {entertainmentStats.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={['#9333ea', '#a855f7', '#c084fc', '#d8b4fe'][index % 4]} />

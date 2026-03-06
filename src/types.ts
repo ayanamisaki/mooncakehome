@@ -27,6 +27,7 @@ export type CatFoodTransition = {
   reason: string;
   plan: CatFoodTransitionDay[];
   isActive: boolean;
+  endDate?: string;
 };
 
 export type CatFoodDaily = {
@@ -223,6 +224,7 @@ export type AppState = {
   settings: {
     waterFilterLastChange: string;
     catFoodTransition?: CatFoodTransition;
+    catFoodTransitionHistory?: CatFoodTransition[];
     catFoodDaily?: CatFoodDaily;
     catFoodRecords: CatFoodRecord[];
     menstrualSettings?: {

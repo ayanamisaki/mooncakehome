@@ -150,7 +150,14 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
   };
 
   const startNewTransition = () => {
+    const currentTransition = state.settings.catFoodTransition;
+    const history = state.settings.catFoodTransitionHistory || [];
+    
+    // If there's an existing transition, move it to history
+    const newHistory = currentTransition ? [...history, currentTransition] : history;
+
     updateSettings({
+      catFoodTransitionHistory: newHistory,
       catFoodTransition: {
         id: crypto.randomUUID(),
         oldFood: '',
@@ -166,13 +173,46 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
 
   const terminateTransition = () => {
     if (state.settings.catFoodTransition) {
+      const start = parseISO(state.settings.catFoodTransition.startDate);
+      const plan = state.settings.catFoodTransition.plan || [];
+      const today = new Date();
+      const todayStr = format(today, 'yyyy-MM-dd');
+      
+      let finalEndDate = todayStr;
+      
+      if (isValid(start) && plan.length > 0) {
+        const originalEndDate = addDays(start, plan.length - 1);
+        const originalEndDateStr = format(originalEndDate, 'yyyy-MM-dd');
+        
+        // 如果计划原结束日在终止日之前，则“结束”时间记为计划原结束日
+        // 如果计划原结束日在终止日之后，则“结束”时间记为终止日
+        if (originalEndDateStr < todayStr) {
+          finalEndDate = originalEndDateStr;
+        }
+      }
+
       updateSettings({
         catFoodTransition: {
           ...state.settings.catFoodTransition,
-          isActive: false
+          isActive: false,
+          endDate: finalEndDate
         }
       });
     }
+  };
+
+  const deleteTransitionHistory = (id: string) => {
+    const history = state.settings.catFoodTransitionHistory || [];
+    updateSettings({
+      catFoodTransitionHistory: history.filter(h => h.id !== id)
+    });
+  };
+
+  const deleteCurrentTransition = () => {
+    updateSettings({
+      catFoodTransition: undefined
+    });
+    setIsEditingTransition(false);
   };
 
   const addTransitionDay = () => {
@@ -229,7 +269,8 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
     if (!state.settings.catFoodTransition?.isActive || !state.settings.catFoodTransition?.startDate) return null;
     const start = parseISO(state.settings.catFoodTransition.startDate);
     if (!isValid(start)) return null;
-    const planLength = state.settings.catFoodTransition.plan.length;
+    const plan = state.settings.catFoodTransition?.plan || [];
+    const planLength = plan.length;
     if (planLength === 0) return format(start, 'yyyy-MM-dd');
     return format(addDays(start, planLength - 1), 'yyyy-MM-dd');
   }, [state.settings.catFoodTransition]);
@@ -239,7 +280,8 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
       const start = parseISO(state.settings.catFoodTransition.startDate);
       if (isValid(start)) {
         const diff = differenceInDays(new Date(), start);
-        if (diff >= 0 && diff < state.settings.catFoodTransition.plan.length) {
+        const plan = state.settings.catFoodTransition?.plan || [];
+        if (diff >= 0 && diff < plan.length) {
           return 'transition';
         }
       }
@@ -275,8 +317,8 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
     });
   };
 
-  const finishCatFoodRecord = (id: string) => {
-    updateCatFoodRecord(id, { isFinished: true, endDate: format(new Date(), 'yyyy-MM-dd') });
+  const finishCatFoodRecord = (id: string, date: string) => {
+    updateCatFoodRecord(id, { isFinished: true, endDate: date });
   };
 
   return (
@@ -319,126 +361,169 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
               )}
             </div>
 
-            {state.settings.catFoodTransition?.isActive ? (
+            {state.settings.catFoodTransition?.isActive || (state.settings.catFoodTransitionHistory && state.settings.catFoodTransitionHistory.length > 0) ? (
               <div className="space-y-4">
-                {!isEditingTransition ? (
-                  <div className="grid grid-cols-2 gap-4 text-[10px] text-amber-700">
-                    <div className="space-y-1">
-                      <p><span className="opacity-60">旧粮：</span>{state.settings.catFoodTransition.oldFood || '--'}</p>
-                      <p><span className="opacity-60">新粮：</span>{state.settings.catFoodTransition.newFood || '--'}</p>
+                {state.settings.catFoodTransition && (
+                  <div className="border-b border-amber-100 pb-4 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                        {state.settings.catFoodTransition.isActive ? '当前计划' : '最近计划'}
+                      </span>
+                      {!state.settings.catFoodTransition.isActive && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[8px] bg-stone-200 text-stone-500 px-2 py-0.5 rounded-full">已终止</span>
+                          <button 
+                            onClick={deleteCurrentTransition}
+                            className="text-stone-300 hover:text-red-500"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="space-y-1">
-                      <p><span className="opacity-60">开始：</span>{state.settings.catFoodTransition.startDate}</p>
-                      <p><span className="opacity-60">结束：</span>{transitionEndDate || '--'}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-700 mb-1">旧粮名称</label>
-                        <select 
-                          value={state.settings.catFoodTransition?.oldFood || ''}
-                          onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, oldFood: e.target.value } })}
-                          className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                        >
-                          <option value="">选择旧粮</option>
-                          {(state.settings.catFoodRecords || []).map(r => (
-                            <option key={r.id} value={r.brand}>{r.brand} ({r.startDate})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-700 mb-1">新粮名称</label>
-                        <select 
-                          value={state.settings.catFoodTransition?.newFood || ''}
-                          onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, newFood: e.target.value } })}
-                          className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                        >
-                          <option value="">选择新粮</option>
-                          {(state.settings.catFoodRecords || []).map(r => (
-                            <option key={r.id} value={r.brand}>{r.brand} ({r.startDate})</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-700 mb-1">换粮理由</label>
-                      <input 
-                        type="text" 
-                        value={state.settings.catFoodTransition?.reason || ''}
-                        onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, reason: e.target.value } })}
-                        placeholder="例如：软便、泪痕、想换口味"
-                        className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-700 mb-1">开始日期</label>
-                        <input 
-                          type="date" 
-                          value={state.settings.catFoodTransition?.startDate || format(new Date(), 'yyyy-MM-dd')}
-                          onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, startDate: e.target.value } })}
-                          className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-700 mb-1">预计结束</label>
-                        <div className="w-full bg-stone-100 rounded-lg p-2 text-xs text-stone-500 border border-stone-200">
-                          {transitionEndDate || '-'}
+                    {!isEditingTransition ? (
+                      <div className="grid grid-cols-2 gap-4 text-[10px] text-amber-700">
+                        <div className="space-y-1">
+                          <p><span className="opacity-60">旧粮：</span>{state.settings.catFoodTransition.oldFood || '--'}</p>
+                          <p><span className="opacity-60">新粮：</span>{state.settings.catFoodTransition.newFood || '--'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p><span className="opacity-60">开始：</span>{state.settings.catFoodTransition.startDate}</p>
+                          <p><span className="opacity-60">结束：</span>{state.settings.catFoodTransition.endDate || transitionEndDate || '--'}</p>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="pt-2 border-t border-amber-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">换粮计划 ({state.settings.catFoodTransition?.plan?.length || 0} 天)</label>
-                        <button 
-                          onClick={addTransitionDay}
-                          className="p-1 bg-amber-600 text-white rounded-full hover:bg-amber-700 transition-colors"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {(state.settings.catFoodTransition?.plan || []).sort((a,b) => a.day - b.day).map((p, idx) => (
-                          <div key={idx} className="bg-white/50 p-2 rounded-xl border border-amber-100 flex items-center gap-2">
-                            <div className="w-8 text-center font-bold text-amber-800 text-[10px]">D{p.day}</div>
-                            <div className="flex-1 grid grid-cols-2 gap-2">
-                              <div className="flex flex-col">
-                                <span className="text-[8px] text-amber-600">总量 (g)</span>
-                                <input 
-                                  type="number" 
-                                  value={p.totalGrams}
-                                  onChange={(e) => updateTransitionDay(p.day, 'totalGrams', parseInt(e.target.value) || 0)}
-                                  className="w-full bg-white rounded p-1 text-[10px] outline-none border border-amber-100"
-                                />
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-[8px] text-amber-600">比例 (旧:新)</span>
-                                <select 
-                                  value={p.ratio || `${p.oldPercent/10}:${p.newPercent/10}`}
-                                  onChange={(e) => updateTransitionDay(p.day, 'ratio', e.target.value)}
-                                  className="w-full bg-white rounded p-1 text-[10px] outline-none border border-amber-100"
-                                >
-                                  {ratios.map(r => <option key={r} value={r}>{r}</option>)}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="w-16 text-center text-[8px] text-amber-700 leading-tight">
-                              <div>旧: {(p.totalGrams * p.oldPercent / 100).toFixed(1)}g</div>
-                              <div>新: {(p.totalGrams * p.newPercent / 100).toFixed(1)}g</div>
-                            </div>
-                            <button 
-                              onClick={() => removeTransitionDay(p.day)}
-                              className="p-1 text-amber-300 hover:text-red-500"
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-700 mb-1">旧粮名称</label>
+                            <select 
+                              value={state.settings.catFoodTransition?.oldFood || ''}
+                              onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, oldFood: e.target.value } })}
+                              className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
                             >
-                              <Trash2 size={12} />
+                              <option value="">选择旧粮</option>
+                              {(state.settings.catFoodRecords || []).map(r => (
+                                <option key={r.id} value={r.brand}>{r.brand} ({r.startDate})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-700 mb-1">新粮名称</label>
+                            <select 
+                              value={state.settings.catFoodTransition?.newFood || ''}
+                              onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, newFood: e.target.value } })}
+                              className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
+                            >
+                              <option value="">选择新粮</option>
+                              {(state.settings.catFoodRecords || []).map(r => (
+                                <option key={r.id} value={r.brand}>{r.brand} ({r.startDate})</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-amber-700 mb-1">换粮理由</label>
+                          <input 
+                            type="text" 
+                            value={state.settings.catFoodTransition?.reason || ''}
+                            onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, reason: e.target.value } })}
+                            placeholder="例如：软便、泪痕、想换口味"
+                            className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-700 mb-1">开始日期</label>
+                            <input 
+                              type="date" 
+                              value={state.settings.catFoodTransition?.startDate || format(new Date(), 'yyyy-MM-dd')}
+                              onChange={(e) => updateSettings({ catFoodTransition: { ...state.settings.catFoodTransition!, startDate: e.target.value } })}
+                              className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-amber-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-700 mb-1">预计结束</label>
+                            <div className="w-full bg-stone-100 rounded-lg p-2 text-xs text-stone-500 border border-stone-200">
+                              {transitionEndDate || '-'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="pt-2 border-t border-amber-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">换粮计划 ({state.settings.catFoodTransition?.plan?.length || 0} 天)</label>
+                            <button 
+                              onClick={addTransitionDay}
+                              className="p-1 bg-amber-600 text-white rounded-full hover:bg-amber-700 transition-colors"
+                            >
+                              <Plus size={14} />
                             </button>
                           </div>
-                        ))}
+                          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            {(state.settings.catFoodTransition?.plan || []).sort((a,b) => a.day - b.day).map((p, idx) => (
+                              <div key={idx} className="bg-white/50 p-2 rounded-xl border border-amber-100 flex items-center gap-2">
+                                <div className="w-8 text-center font-bold text-amber-800 text-[10px]">D{p.day}</div>
+                                <div className="flex-1 grid grid-cols-2 gap-2">
+                                  <div className="flex flex-col">
+                                    <span className="text-[8px] text-amber-600">总量 (g)</span>
+                                    <input 
+                                      type="number" 
+                                      value={p.totalGrams}
+                                      onChange={(e) => updateTransitionDay(p.day, 'totalGrams', parseInt(e.target.value) || 0)}
+                                      className="w-full bg-white rounded p-1 text-[10px] outline-none border border-amber-100"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="text-[8px] text-amber-600">比例 (旧:新)</span>
+                                    <select 
+                                      value={p.ratio || `${p.oldPercent/10}:${p.newPercent/10}`}
+                                      onChange={(e) => updateTransitionDay(p.day, 'ratio', e.target.value)}
+                                      className="w-full bg-white rounded p-1 text-[10px] outline-none border border-amber-100"
+                                    >
+                                      {ratios.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="w-16 text-center text-[8px] text-amber-700 leading-tight">
+                                  <div>旧: {(p.totalGrams * p.oldPercent / 100).toFixed(1)}g</div>
+                                  <div>新: {(p.totalGrams * p.newPercent / 100).toFixed(1)}g</div>
+                                </div>
+                                <button 
+                                  onClick={() => removeTransitionDay(p.day)}
+                                  className="p-1 text-amber-300 hover:text-red-500"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
+                  </div>
+                )}
+
+                {state.settings.catFoodTransitionHistory && state.settings.catFoodTransitionHistory.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider opacity-60">历史计划</span>
+                    {state.settings.catFoodTransitionHistory.sort((a,b) => b.startDate.localeCompare(a.startDate)).map(trans => (
+                      <div key={trans.id} className="bg-white/40 p-2 rounded-xl border border-amber-50 text-[10px] text-amber-700/70">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold">{trans.oldFood} → {trans.newFood}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[8px]">{trans.startDate} 至 {trans.endDate || '--'}</span>
+                            <button 
+                              onClick={() => deleteTransitionHistory(trans.id)}
+                              className="text-stone-300 hover:text-red-500"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="opacity-60 italic">理由: {trans.reason || '无'}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -463,40 +548,54 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
             </div>
             
             <div className="space-y-3">
-              {state.settings.catFoodRecords.length === 0 ? (
+              {(!state.settings.catFoodRecords || state.settings.catFoodRecords.length === 0) ? (
                 <p className="text-[10px] text-stone-400 italic text-center py-2">暂无猫粮记录</p>
               ) : (
-                state.settings.catFoodRecords.sort((a,b) => b.startDate.localeCompare(a.startDate)).map(record => (
+                [...state.settings.catFoodRecords].sort((a,b) => b.startDate.localeCompare(a.startDate)).map(record => (
                   <div key={record.id} className={clsx(
                     "p-3 rounded-xl border transition-all",
                     record.isFinished ? "bg-stone-100 border-stone-200 opacity-60" : "bg-white border-stone-100 shadow-sm"
                   )}>
-                    <div className="flex items-center justify-between mb-2">
-                      <input 
-                        type="text" 
-                        value={record.brand}
-                        onChange={(e) => updateCatFoodRecord(record.id, { brand: e.target.value })}
-                        placeholder="品牌名称"
-                        className="bg-transparent font-bold text-xs outline-none border-b border-transparent focus:border-stone-300 flex-1 mr-2"
-                      />
-                      <div className="flex items-center gap-2">
-                        {!record.isFinished ? (
-                          <button 
-                            onClick={() => finishCatFoodRecord(record.id)}
-                            className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded-lg"
-                          >
-                            <CheckCircle2 size={12} /> 吃完啦
-                          </button>
-                        ) : (
-                          <span className="text-[10px] text-stone-400 font-bold">已吃完 ({record.endDate})</span>
-                        )}
+                    <div className="flex flex-col gap-2 mb-3">
+                      <div className="flex items-center justify-between">
+                        <input 
+                          type="text" 
+                          value={record.brand}
+                          onChange={(e) => updateCatFoodRecord(record.id, { brand: e.target.value })}
+                          placeholder="品牌名称"
+                          className="bg-transparent font-bold text-xs outline-none border-b border-transparent focus:border-stone-300 flex-1 mr-2"
+                        />
                         <button 
                           onClick={() => deleteCatFoodRecord(record.id)}
-                          className="text-stone-300 hover:text-red-500"
+                          className="text-stone-300 hover:text-red-500 flex-shrink-0"
                         >
                           <Trash2 size={14} />
                         </button>
                       </div>
+
+                      {!record.isFinished ? (
+                        <div className="flex items-center justify-between gap-2 bg-stone-50 p-1.5 rounded-lg border border-stone-100/50">
+                          <input 
+                            type="date" 
+                            className="text-[10px] border border-stone-200 rounded px-1 outline-none w-28"
+                            defaultValue={format(new Date(), 'yyyy-MM-dd')}
+                            id={`finish-date-${record.id}`}
+                          />
+                          <button 
+                            onClick={() => {
+                              const dateInput = document.getElementById(`finish-date-${record.id}`) as HTMLInputElement;
+                              finishCatFoodRecord(record.id, dateInput.value);
+                            }}
+                            className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded-lg whitespace-nowrap"
+                          >
+                            <CheckCircle2 size={12} /> 吃完啦
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end">
+                          <span className="text-[10px] text-stone-400 font-bold bg-stone-200/50 px-2 py-0.5 rounded-full">已吃完 ({record.endDate})</span>
+                        </div>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       <div className="flex flex-col">
@@ -517,19 +616,15 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
                           className="bg-transparent text-[10px] outline-none"
                         />
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-[8px] text-stone-400">日常量 (g)</span>
-                        <input 
-                          type="number" 
-                          value={record.dailyGrams}
-                          onChange={(e) => updateCatFoodRecord(record.id, { dailyGrams: parseInt(e.target.value) || 0 })}
-                          className="bg-transparent text-[10px] outline-none"
-                        />
-                      </div>
                       {record.isFinished && (
                         <div className="flex flex-col">
                           <span className="text-[8px] text-stone-400">吃完日期</span>
-                          <span className="text-[10px]">{record.endDate}</span>
+                          <input 
+                            type="date" 
+                            value={record.endDate || ''}
+                            onChange={(e) => updateCatFoodRecord(record.id, { endDate: e.target.value })}
+                            className="bg-transparent text-[10px] outline-none"
+                          />
                         </div>
                       )}
                     </div>
@@ -560,7 +655,7 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
             {!isEditingDaily ? (
               <div className="grid grid-cols-2 gap-4 text-[10px] text-stone-600">
                 <div className="space-y-1">
-                  <p><span className="opacity-60">品牌：</span>{state.settings.catFoodDaily?.brand || '--'}</p>
+                  <p><span className="opacity-60">名称：</span>{state.settings.catFoodDaily?.brand || '--'}</p>
                   <p><span className="opacity-60">价格：</span>{state.settings.catFoodDaily?.price || 0} 元</p>
                 </div>
                 <div className="space-y-1">
@@ -571,13 +666,27 @@ const SettingsPage: React.FC<PageProps> = ({ state, updateSettings, importData }
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-stone-500 mb-1">猫粮品牌</label>
-                  <input 
-                    type="text" 
+                  <label className="block text-[10px] font-bold text-stone-500 mb-1">猫粮名称</label>
+                  <select 
                     value={state.settings.catFoodDaily?.brand || ''}
-                    onChange={(e) => updateSettings({ catFoodDaily: { ...state.settings.catFoodDaily!, brand: e.target.value } })}
+                    onChange={(e) => {
+                      const record = state.settings.catFoodRecords.find(r => r.brand === e.target.value);
+                      updateSettings({ 
+                        catFoodDaily: { 
+                          ...state.settings.catFoodDaily!, 
+                          brand: e.target.value,
+                          price: record ? record.price : state.settings.catFoodDaily?.price || 0,
+                          startDate: record ? record.startDate : state.settings.catFoodDaily?.startDate || format(new Date(), 'yyyy-MM-dd')
+                        } 
+                      });
+                    }}
                     className="w-full bg-white rounded-lg p-2 text-xs outline-none border border-stone-200"
-                  />
+                  >
+                    <option value="">选择猫粮</option>
+                    {state.settings.catFoodRecords.map(r => (
+                      <option key={r.id} value={r.brand}>{r.brand} ({r.startDate})</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
